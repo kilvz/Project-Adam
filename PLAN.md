@@ -98,7 +98,26 @@ Make existing components actually drive behavior — no new components, just con
 9. **Semantic phrase grouping** — consolidation clusters adopted phrases by embedding similarity (cosine > 0.7), stores clusters as `phrase_cluster` in semantic memory.
 10. **Multi-session memory with importance-weighted retention** — replay priority uses `reward×0.6 + recency_factor×0.4`; pruning threshold applies to same importance metric.
 
-### Phase C: Scale
-11. **4-bit Qwen2.5-1.5B via bitsandbytes** — 1.5B params at 4-bit ≈ 0.9GB VRAM (same as current 0.5B at fp16). Deeper reasoning, better instruction following.
-12. **LoRA fine-tuning from accumulated memories** — batch process episodic memory → train LoRA adapters (ranks 8-16) on accumulated conversations. Swappable per user or per topic.
-13. **Autonomous knowledge-gap detection** — when semantic retrieval scores are low AND user asked a factual question → auto-trigger web search → extract facts → store in semantic memory. Self-educating without explicit `/search`.
+### ✅ Phase C: Scale (done)
+11. **4-bit Qwen2.5-1.5B via bitsandbytes** — 1.5B params at NF4 quantization = 1.4GB VRAM (vs 1.0GB for 0.5B at fp16). `BASE_MODEL` defaults to `MODEL_1_5B` with automatic fallback to `MODEL_0_5B` fp16. Full chat template, hidden_size=1536, 28 layers.
+12. **LoRA fine-tuning from accumulated memories** — model wrapped with PEFT LoRA (`q_proj`, `v_proj`, rank=8) at init. Every 10 interactions, `_lora_train_step()` runs 5 gradient steps on recent episodes (2.3s overhead). Adapter saved to `agent_memory/adapters/default/` and reloaded at startup.
+13. **Autonomous knowledge-gap detection** — when input is a factual question (wh-word + `?`) AND semantic retrieval confidence < 0.25 AND no facts extracted → auto-trigger web search → store results in semantic memory as `web_knowledge`. Self-educating without explicit `/search`.
+
+## Final System Summary
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Persona (adam.md) | ✅ | 15 rules, 15 openings, 10 closings, 93 signatures |
+| SensoryEncoder (VAE) | ✅ | 896/1536→128 bottleneck, β=0.001 KL, trainable inline |
+| WorkingMemory | ✅ | 8-turn gated buffer |
+| EpisodicMemory | ✅ | Vector store + importance-weighted retention |
+| SemanticMemory | ✅ | Schema graph with cross-user distillation + phrase clusters |
+| NeuralMemory | ✅ | Transformer attention, 3 gradient steps/turn |
+| SFL Module | ✅ | Q-learning (4 features), per-turn, <1ms |
+| User Profiles | ✅ | Per-user topics, sentiment, rule weights, custom rules |
+| Metacognitive Controller | ✅ | 5 actions: clarify/explore/search/replay/proceed |
+| Action Selector | ✅ | Dual-system with SFL temperature + web search |
+| Offline Consolidator | ✅ | Prioritized replay, pruning, dedup, cross-user, phrase clusters |
+| Model | ✅ | 4-bit Qwen2.5-1.5B (1.4GB VRAM), auto-fallback to 0.5B |
+| LoRA Fine-tuning | ✅ | Rank 8 adapters, trained every 10 interactions |
+| Auto Knowledge-Gap | ✅ | Question + low confidence → auto-search |

@@ -5,10 +5,22 @@ import numpy as np
 import json, os, time, re, pickle, threading, math, random
 from pathlib import Path
 from collections import defaultdict
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments
+from peft import LoraConfig, get_peft_model, PeftModel
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+
+# C11: 4-bit Qwen2.5-1.5B (~1.24GB VRAM). Falls back to 0.5B fp16 if 4-bit unsupported.
+MODEL_1_5B = "Qwen/Qwen2.5-1.5B-Instruct"
+MODEL_0_5B = "Qwen/Qwen2.5-0.5B-Instruct"
+BASE_MODEL = MODEL_1_5B
+
+_4BIT_CONFIG = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=False,
+)
 MEMORY_DIR = Path("agent_memory")
 MEMORY_DIR.mkdir(exist_ok=True)
 
@@ -904,16 +916,31 @@ class ActionSelector:
 
 class CognitiveAgent:
     def __init__(self):
-        print("Loading Qwen2.5-0.5B-Instruct...")
         t0 = time.time()
-        self.tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            torch_dtype=torch.float16,
-            device_map=DEVICE,
-        ).eval()
+        model_id = BASE_MODEL
+        is_4bit = False
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                quantization_config=_4BIT_CONFIG,
+                device_map="auto",
+                torch_dtype=torch.float16,
+            )
+            is_4bit = True
+        except Exception:
+            print(f"  4-bit failed, falling back to {MODEL_0_5B} fp16...")
+            model_id = MODEL_0_5B
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                device_map=DEVICE,
+            )
+        self.model.eval()
+        model_label = "1.5B-4bit" if is_4bit else "0.5B-fp16"
         dt = time.time() - t0
-        print(f"Loaded: {sum(p.numel() for p in self.model.parameters()):,} params in {dt:.0f}s")
+        print(f"Loaded {model_label}: {sum(p.numel() for p in self.model.parameters()):,} params in {dt:.0f}s")
 
         model_dtype = self.model.dtype
         hidden_dim = self.model.config.hidden_size
@@ -926,6 +953,27 @@ class CognitiveAgent:
         self.persona = Persona()
         self.metacognitive = MetacognitiveController()
         self.web_search = WebSearch()
+
+        # C12: Wrap with LoRA (trainable adapters, frozen base)
+        self._lora_config = LoraConfig(
+            r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
+            lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
+        )
+        self.model = get_peft_model(self.model, self._lora_config)
+        self.model.eval()
+        self._adapter_dir = MEMORY_DIR / "adapters"
+        self._adapter_dir.mkdir(exist_ok=True)
+        adapter_path = self._adapter_dir / "default"
+        if adapter_path.exists() and (adapter_path / "adapter_config.json").exists():
+            try:
+                self.model.load_adapter(str(adapter_path), adapter_name="default")
+                self.model.set_adapter("default")
+                print("  [lora] loaded persisted adapter")
+            except Exception:
+                pass
+        lora_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f"LoRA adapters: {lora_trainable:,} trainable params")
+
         self.action_selector = ActionSelector(
             self.tokenizer, self.model,
             self.episodic_memory, self.semantic_memory,
@@ -960,6 +1008,7 @@ class CognitiveAgent:
                 print(f"  [hello {detected}, storing your profile]")
             else:
                 print(f"  [welcome back {detected}]")
+
         elif self.current_profile is None:
             self.current_profile = self.user_profiles.get_or_create("Stranger")
 
@@ -968,6 +1017,22 @@ class CognitiveAgent:
         for cat, fact in facts:
             self.semantic_memory.add(cat, fact)
             self.episodic_memory.add(fact, reward=0.7)
+
+        # C13: Autonomous knowledge-gap detection
+        is_question = any(user_input.lower().startswith(w) for w in ["what", "why", "how", "when", "where", "who", "which", "does", "is", "are", "can"]) and "?" in user_input
+        if is_question and not facts:
+            sem_retrieval = self.semantic_memory.retrieve(user_input, 3)
+            sem_conf = max([s for _, _, s in sem_retrieval], default=0)
+            if sem_conf < 0.25:
+                result = self.web_search.search(user_input)
+                if result:
+                    for cat in ["name", "location", "likes", "preference", "dislikes"]:
+                        if cat in user_input.lower():
+                            self.semantic_memory.add(cat, result[:200])
+                            break
+                    else:
+                        self.semantic_memory.add("web_knowledge", result[:300])
+                    self.episodic_memory.add(f"[auto-search] {result[:200]}", reward=0.4)
 
         self.episodic_memory.add(user_input)
 
@@ -1015,6 +1080,12 @@ class CognitiveAgent:
 
         # mint new rules from sustained topic patterns
         self._mint_custom_rules()
+
+        # C12: periodic LoRA training (every 10 interactions)
+        if self.current_profile is not None:
+            count = self.current_profile.get("interaction_count", 0)
+            if count > 0 and count % 10 == 0:
+                self._lora_train_step()
 
         return reply
 
@@ -1112,6 +1183,66 @@ class CognitiveAgent:
 
         return reply
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # C12: LoRA fine-tuning from accumulated memories
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _lora_format_examples(self, episodes, max_examples=8):
+        """Format episodic memories as (text, labels) training examples."""
+        examples = []
+        for ep in episodes[-max_examples:]:
+            text = ep.get("text", "")
+            if not text or len(text) < 5:
+                continue
+            text = f"<|im_start|>user\n{text}<|im_end|>\n<|im_start|>assistant\nI see.<|im_end|>"
+            examples.append(text)
+        return examples
+
+    def _lora_train_step(self):
+        """Run a few LoRA gradient steps on recent episodes. Called during consolidation."""
+        if len(self.episodic_memory.episodes) < 5:
+            return
+
+        texts = self._lora_format_examples(self.episodic_memory.episodes[-20:], max_examples=5)
+        if not texts:
+            return
+
+        self.model.train()
+        optim = torch.optim.AdamW(
+            [p for p in self.model.parameters() if p.requires_grad], lr=1e-4
+        )
+
+        total_loss = 0.0
+        for text in texts:
+            enc = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=64).to(DEVICE)
+            labels = enc["input_ids"].clone()
+            assist_tok = self.tokenizer("<|im_start|>assistant", add_special_tokens=False)["input_ids"][0]
+            assist_idx = (labels[0] == assist_tok).nonzero()
+            if assist_idx.numel() > 0:
+                labels[0, :assist_idx[0, 0]] = -100
+            out = self.model(**enc, labels=labels, use_cache=False)
+            loss = out.loss
+            if not torch.isnan(loss):
+                loss.backward()
+                optim.step()
+                optim.zero_grad()
+                total_loss += loss.item()
+
+        self.model.eval()
+
+        if total_loss > 0:
+            self._save_adapter()
+
+    def _save_adapter(self):
+        """Save LoRA adapter weights to disk."""
+        path = self._adapter_dir / "default"
+        try:
+            self.model.save_pretrained(str(path))
+        except Exception:
+            pass
+
+
+
     def run(self):
         self.consolidator.start(interval=180)
         greeting = self.persona.get_opening() if self.persona else ""
@@ -1132,6 +1263,7 @@ class CognitiveAgent:
                 self.semantic_memory.save()
                 self.user_profiles.save()
                 torch.save(self.neural_memory.state_dict(), MEMORY_DIR / "neural_memory.pt")
+                self._save_adapter()
                 closing = self.persona.get_closing() if self.persona else "Goodbye."
                 print(f"Adam: One more thing — {closing}")
                 break
