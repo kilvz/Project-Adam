@@ -11,9 +11,10 @@ from peft import LoraConfig, get_peft_model, PeftModel
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # C11: 4-bit Qwen2.5-1.5B (~1.24GB VRAM). Falls back to 0.5B fp16 if 4-bit unsupported.
+MODEL_3B = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_1_5B = "Qwen/Qwen2.5-1.5B-Instruct"
 MODEL_0_5B = "Qwen/Qwen2.5-0.5B-Instruct"
-BASE_MODEL = MODEL_1_5B
+BASE_MODEL = MODEL_3B
 
 _4BIT_CONFIG = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -1016,26 +1017,29 @@ class CognitiveAgent:
         t0 = time.time()
         model_id = BASE_MODEL
         is_4bit = False
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                quantization_config=_4BIT_CONFIG,
-                device_map="auto",
-                torch_dtype=torch.float16,
-            )
-            is_4bit = True
-        except Exception:
-            print(f"  4-bit failed, falling back to {MODEL_0_5B} fp16...")
-            model_id = MODEL_0_5B
-            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                device_map=DEVICE,
-            )
+        candidates = [MODEL_3B, MODEL_1_5B, MODEL_0_5B]
+        for candidate in candidates:
+            try:
+                model_id = candidate
+                self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+                if candidate == MODEL_0_5B:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_id, torch_dtype=torch.float16, device_map=DEVICE,
+                    )
+                    is_4bit = False
+                else:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_id,
+                        quantization_config=_4BIT_CONFIG,
+                        device_map="auto", torch_dtype=torch.float16,
+                    )
+                    is_4bit = True
+                break
+            except Exception:
+                is_4bit = False
+                continue
         self.model.eval()
-        model_label = "1.5B-4bit" if is_4bit else "0.5B-fp16"
+        model_label = model_id.split("/")[-1]
         dt = time.time() - t0
         print(f"Loaded {model_label}: {sum(p.numel() for p in self.model.parameters()):,} params in {dt:.0f}s")
 
