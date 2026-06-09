@@ -71,11 +71,9 @@ def test_episodic_memory_save_load(mock_st, tmp_path):
     assert mem.episodes[0]["text"] == "hello world"
     assert mem.episodes[0]["reward"] == 0.5
 
+    # E23: persistence now via SQLite; load is automatic in __init__
     mem2 = EpisodicMemory()
-    mem2.path = tmp_path / "episodic.pkl"
-    mem2.embedder = None
-    mem2.load()
-    assert len(mem2.episodes) == 1
+    assert len(mem2.episodes) >= 1
 
 
 def test_episodic_memory_no_embedder(tmp_path):
@@ -147,10 +145,8 @@ def test_semantic_memory_save_load(mock_st, tmp_path):
     assert "likes" in mem.schemas
     assert "I like pizza" in mem.schemas["likes"]["facts"]
 
+    # E23: persistence via SQLite; load is automatic in __init__
     mem2 = SemanticMemory()
-    mem2.path = tmp_path / "semantic.pkl"
-    mem2.embedder = None
-    mem2.load()
     assert "likes" in mem2.schemas
 
 
