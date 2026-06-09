@@ -128,12 +128,12 @@ Make existing components actually drive behavior — no new components, just con
 | LoRA Fine-tuning | ✅ | Rank 8 adapters, trained every 10 interactions |
 | Auto Knowledge-Gap | ✅ | Question + low confidence → auto-search |
 
-### ✅ Phase D: Polish & UX
+### ✅ Phase D: Polish & UX (all done)
 14. **Streaming output** — `TextIteratorStreamer` in a background thread with token-by-token `print()` or optional callback. First token appears in <1s on Pascal.
 15. **Evaluation dashboard** — `/dashboard` command showing SFL Q, reward trend, confidence, rule weight spread, last action. ASCII box format.
 16. **Per-user LoRA adapters** — Each user gets their own LoRA adapter saved to `agent_memory/adapters/{name}/`. Swapped via `_switch_adapter()` on user detection.
-17. **Web search fallback** — Wikipedia API fallback when DDGS returns 0 results. Search cache persisted to `agent_memory/search_cache.json`. All tiers (DDGS → Wikipedia → cache) integrated into `WebSearch.search()`. Also added `.external/` config with web-search agent and commands.
-18. **Improved topic extraction** — `extract_topics()` now optionally takes an embedder to merge semantically similar words (cosine > 0.65 → same topic). Uses `all-MiniLM-L6-v2`.
-19. **Web UI (Gradio)** — `gradio.ChatInterface` at `localhost:7860` via `--web` flag. Token callback adapter for streaming. `pip install gradio` required.
-20. **Qwen2.5-3B 4-bit** — *(not started)*
-21. **Voice mode** — *(not started)*
+17. **Web search fallback** — Wikipedia API fallback when DDGS returns 0 results. Search cache persisted to `agent_memory/search_cache.json`. All tiers (DDGS → Wikipedia → cache).
+18. **Improved topic extraction** — `extract_topics()` optionally takes an embedder to merge semantically similar words (cosine > 0.65 → same topic).
+19. **Web UI (Gradio)** — `gradio.ChatInterface` at `localhost:7860` via `--web` flag.
+20. **Qwen2.5-3B 4-bit** — 3B params at NF4 fits in 2.11GB VRAM (leaves 1.8GB). Auto-fallback chain: 3B → 1.5B → 0.5B. 0.8 tok/s on Pascal.
+21. **Voice mode** — `--voice` flag. `faster-whisper` tiny/int8 ASR → `chat()` → `edge-tts` TTS via miniaudio + sounddevice.
