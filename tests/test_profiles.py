@@ -112,10 +112,8 @@ def test_save_load(tmp_path):
     m1.get_or_create("Alice")
     m1.get_or_create("Bob")
 
+    # E23: persistence via SQLite; load is automatic in __init__
     m2 = UserProfileManager()
-    m2.path = tmp_path / "user_profiles.pkl"
-    m2.profiles = {}
-    m2.load()
     assert "Alice" in m2.profiles
     assert "Bob" in m2.profiles
 

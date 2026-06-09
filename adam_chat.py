@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import json, os, time, re, pickle, threading, math, random
+import json, os, time, re, pickle, threading, math, random, sqlite3
 from pathlib import Path
 from collections import defaultdict
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments, TextIteratorStreamer
@@ -26,6 +26,58 @@ MEMORY_DIR = Path("agent_memory")
 MEMORY_DIR.mkdir(exist_ok=True)
 
 PERSONA_PATH = Path("persona-studio/personas/adam.md")
+
+# ═══════════════════════════════════════════════════════════════════════
+# E23: SQLite persistence backend (replaces pickle)
+# ═══════════════════════════════════════════════════════════════════════
+
+DB_PATH = MEMORY_DIR / "memory.db"
+
+def _init_db():
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS kv (
+        key TEXT PRIMARY KEY, value BLOB
+    )""")
+    conn.commit()
+    return conn
+
+class SQLiteStore:
+    """Thread-safe key-value store backed by SQLite. Drops pickle once
+    migrated: reads from SQLite, saves to both, reads old pickle as fallback."""
+
+    def __init__(self, key, path=None, pickle_fallback=None):
+        self.key = key
+        self.pickle_path = Path(path) if path else None
+        self.pickle_fallback = pickle_fallback  # callable returning default
+        self._conn = _init_db()
+        self._lock = threading.Lock()
+
+    def load(self, default=None):
+        with self._lock:
+            cur = self._conn.execute("SELECT value FROM kv WHERE key=?", (self.key,))
+            row = cur.fetchone()
+            if row:
+                return pickle.loads(row[0])
+        # fallback: try pickle file
+        if self.pickle_path and self.pickle_path.exists():
+            with open(self.pickle_path, "rb") as f:
+                data = pickle.load(f)
+            self.save(data)  # migrate to SQLite
+            return data
+        if self.pickle_fallback:
+            return self.pickle_fallback()
+        return default if default is not None else {}
+
+    def save(self, data):
+        with self._lock:
+            blob = pickle.dumps(data)
+            self._conn.execute("REPLACE INTO kv (key, value) VALUES (?,?)", (self.key, blob))
+            self._conn.commit()
+
+    def close(self):
+        self._conn.close()
 
 # ═══════════════════════════════════════════════════════════════════════
 # 0. PERSONA LOADER — Load and serve the adam.md persona
@@ -204,20 +256,14 @@ class Persona:
 class UserProfileManager:
     def __init__(self):
         self.path = MEMORY_DIR / "user_profiles.pkl"
-        self.profiles = {}
+        self._store = SQLiteStore("user_profiles", self.path)
+        self.profiles = self._store.load(default={})
         self.current_name = None
         self._lock = threading.RLock()
-        self.load()
         print(f"[profiles] loaded {len(self.profiles)} user profiles")
 
-    def load(self):
-        if self.path.exists():
-            with open(self.path, "rb") as f:
-                self.profiles = pickle.load(f)
-
     def save(self):
-        with open(self.path, "wb") as f:
-            pickle.dump(self.profiles, f)
+        self._store.save(self.profiles)
 
     def get_or_create(self, name):
         name = name.strip().capitalize()
@@ -340,24 +386,20 @@ class EpisodicMemory:
     def __init__(self):
         self.episodes = []
         self.path = MEMORY_DIR / "episodic.pkl"
+        self._store = SQLiteStore("episodic")
+        self.episodes = self._store.load(default=[])
         self._lock = threading.Lock()
-        self.load()
+        if self.episodes:
+            print(f"[episodic] loaded {len(self.episodes)} episodes")
         try:
             from sentence_transformers import SentenceTransformer
             self.embedder = SentenceTransformer("all-MiniLM-L6-v2", device=DEVICE)
         except Exception:
             self.embedder = None
 
-    def load(self):
-        if self.path.exists():
-            with open(self.path, "rb") as f:
-                self.episodes = pickle.load(f)
-            print(f"[episodic] loaded {len(self.episodes)} episodes")
-
     def save(self):
         with self._lock:
-            with open(self.path, "wb") as f:
-                pickle.dump(self.episodes, f)
+            self._store.save(self.episodes)
 
     def add(self, text, reward=0.0):
         if not self.embedder:
@@ -389,22 +431,18 @@ class SemanticMemory:
     def __init__(self):
         self.schemas = {}
         self.path = MEMORY_DIR / "semantic.pkl"
-        self.load()
+        self._store = SQLiteStore("semantic", self.path)
+        self.schemas = self._store.load(default={})
+        if self.schemas:
+            print(f"[semantic] loaded {len(self.schemas)} schemas")
         try:
             from sentence_transformers import SentenceTransformer
             self.embedder = SentenceTransformer("all-MiniLM-L6-v2", device=DEVICE)
         except Exception:
             self.embedder = None
 
-    def load(self):
-        if self.path.exists():
-            with open(self.path, "rb") as f:
-                self.schemas = pickle.load(f)
-            print(f"[semantic] loaded {len(self.schemas)} schemas")
-
     def save(self):
-        with open(self.path, "wb") as f:
-            pickle.dump(self.schemas, f)
+        self._store.save(self.schemas)
 
     def add(self, category, fact):
         if category not in self.schemas:
