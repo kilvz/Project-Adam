@@ -137,3 +137,11 @@ Make existing components actually drive behavior — no new components, just con
 19. **Web UI (Gradio)** — `gradio.ChatInterface` at `localhost:7860` via `--web` flag.
 20. **Qwen2.5-3B 4-bit** — 3B params at NF4 fits in 2.11GB VRAM (leaves 1.8GB). Auto-fallback chain: 3B → 1.5B → 0.5B. 0.8 tok/s on Pascal.
 21. **Voice mode** — `--voice` flag. `faster-whisper` tiny/int8 ASR → `chat()` → `edge-tts` TTS via miniaudio + sounddevice.
+
+### Phase E: Production Hardening
+22. **Unit/regression tests** — pytest suite for all 8 modules. Mock model/tokenizer for GPU-free test runs.
+23. **SQLite persistence** — Replace pickle for episodic/semantic/user_profiles. Atomic writes, concurrent-safe, queryable.
+24. **REST API + Docker** — FastAPI wrapper around CognitiveAgent.chat(). Dockerfile with CUDA 12.4 base, pip deps, model auto-download.
+25. **Speed optimizations** — Speculative decoding (small draft model), KV-cache reuse across turns, or batching.
+26. **Smarter LoRA training** — Curriculum learning: train on high-reward turns first, use reward-weighted loss, multi-turn episodes.
+27. **Better Gradio UI** — Memory browser tab, user profile viewer, confidence/rule visualization, mobile-responsive.

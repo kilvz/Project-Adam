@@ -578,10 +578,14 @@ class WebSearch:
         self.cache_path = os.path.join(MEMORY_DIR, "search_cache.json")
         self._load_cache()
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             self.searcher = DDGS()
         except Exception:
-            pass
+            try:
+                from duckduckgo_search import DDGS
+                self.searcher = DDGS()
+            except Exception:
+                pass
 
     def _load_cache(self):
         try:
