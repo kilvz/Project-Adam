@@ -39,7 +39,6 @@ All components run on a **4-bit Qwen2.5-1.5B-Instruct** base model (888M params 
 | CognitiveAgent | Line 917 | ✅ | Orchestrator: LoRA training, adapters, Gradio, dashboard |
 | LoRA Adapters | - | ✅ | Per-user adapters, swapped on detection, 1M params each |
 | Gradio Web UI | - | ✅ | `--web` flag → localhost:7860 ChatInterface |
-| external Config | - | ✅ | `.external/external.json` with agents + commands |
 | MetacognitiveController | Line 478 | ✅ | Confidence from logit entropy, strategy selection |
 | WebSearch | Line 522 | ✅ | DuckDuckGo, triggered by metacognitive uncertainty |
 | OfflineConsolidator | Line 545 | ✅ | Background replay every 180s, schema extraction |
