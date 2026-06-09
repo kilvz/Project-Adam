@@ -19,7 +19,7 @@ Metacognitive Controller ─┬─ Persona (adaptive behavioral rules)
                            └─ Offline Consolidator (background replay)
 ```
 
-All components run on a frozen **Qwen2.5-0.5B-Instruct** base model (~0.5B params, 1GB VRAM).
+All components run on a **4-bit Qwen2.5-1.5B-Instruct** base model (888M params at NF4, ~1.4GB VRAM) with LoRA fine-tuning (rank 8, 1M trainable params).
 
 ## Implementation Status
 
@@ -33,6 +33,13 @@ All components run on a frozen **Qwen2.5-0.5B-Instruct** base model (~0.5B param
 | SemanticMemory | Line 356 | ✅ | Schema graph with assimilation/accommodation |
 | NeuralMemory | Line 403 | ✅ | Attention memory (32 slots × 256 dim), online gradient updates |
 | SFLModule | Line 454 | ✅ | Q-learning Linear(4→1), per-turn SGD over social features |
+| WebSearch | Line 573 | ✅ | DDGS → Wikipedia fallback with search cache |
+| OfflineConsolidator | Line 596 | ✅ | Prioritized replay, cross-user distillation, phrase clustering |
+| ActionSelector | Line 837 | ✅ | Dual-system with SFL temperature + streaming output |
+| CognitiveAgent | Line 917 | ✅ | Orchestrator: LoRA training, adapters, Gradio, dashboard |
+| LoRA Adapters | - | ✅ | Per-user adapters, swapped on detection, 1M params each |
+| Gradio Web UI | - | ✅ | `--web` flag → localhost:7860 ChatInterface |
+| external Config | - | ✅ | `.external/external.json` with agents + commands |
 | MetacognitiveController | Line 478 | ✅ | Confidence from logit entropy, strategy selection |
 | WebSearch | Line 522 | ✅ | DuckDuckGo, triggered by metacognitive uncertainty |
 | OfflineConsolidator | Line 545 | ✅ | Background replay every 180s, schema extraction |
@@ -121,3 +128,13 @@ Make existing components actually drive behavior — no new components, just con
 | Model | ✅ | 4-bit Qwen2.5-1.5B (1.4GB VRAM), auto-fallback to 0.5B |
 | LoRA Fine-tuning | ✅ | Rank 8 adapters, trained every 10 interactions |
 | Auto Knowledge-Gap | ✅ | Question + low confidence → auto-search |
+
+### ✅ Phase D: Polish & UX
+14. **Streaming output** — `TextIteratorStreamer` in a background thread with token-by-token `print()` or optional callback. First token appears in <1s on Pascal.
+15. **Evaluation dashboard** — `/dashboard` command showing SFL Q, reward trend, confidence, rule weight spread, last action. ASCII box format.
+16. **Per-user LoRA adapters** — Each user gets their own LoRA adapter saved to `agent_memory/adapters/{name}/`. Swapped via `_switch_adapter()` on user detection.
+17. **Web search fallback** — Wikipedia API fallback when DDGS returns 0 results. Search cache persisted to `agent_memory/search_cache.json`. All tiers (DDGS → Wikipedia → cache) integrated into `WebSearch.search()`. Also added `.external/` config with web-search agent and commands.
+18. **Improved topic extraction** — `extract_topics()` now optionally takes an embedder to merge semantically similar words (cosine > 0.65 → same topic). Uses `all-MiniLM-L6-v2`.
+19. **Web UI (Gradio)** — `gradio.ChatInterface` at `localhost:7860` via `--web` flag. Token callback adapter for streaming. `pip install gradio` required.
+20. **Qwen2.5-3B 4-bit** — *(not started)*
+21. **Voice mode** — *(not started)*

@@ -5,7 +5,7 @@ import numpy as np
 import json, os, time, re, pickle, threading, math, random
 from pathlib import Path
 from collections import defaultdict
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments, TextIteratorStreamer
 from peft import LoraConfig, get_peft_model, PeftModel
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -558,8 +558,13 @@ class MetacognitiveController:
     def stats(self):
         avg_conf = sum(self.recent_confidence) / max(len(self.recent_confidence), 1)
         slow_rate = self.slow_path_used / max(self.total_interactions, 1)
-        return {"avg_confidence": f"{avg_conf:.2f}", "slow_path_rate": f"{slow_rate:.2f}",
-                "total": self.total_interactions}
+        return {
+            "total": self.total_interactions,
+            "avg_confidence": round(avg_conf, 3),
+            "slow_path_rate": round(slow_rate, 3),
+            "confidence_history": self.recent_confidence[-50:],
+            "last_action": self.last_action,
+        }
 
 # ═══════════════════════════════════════════════════════════════════════
 # 7. WEB SEARCH — External knowledge tool
@@ -568,21 +573,79 @@ class MetacognitiveController:
 class WebSearch:
     def __init__(self):
         self.searcher = None
+        self.cache = {}
+        self.cache_path = os.path.join(MEMORY_DIR, "search_cache.json")
+        self._load_cache()
         try:
             from duckduckgo_search import DDGS
             self.searcher = DDGS()
         except Exception:
             pass
 
-    def search(self, query, max_results=3):
-        if not self.searcher:
-            return None
+    def _load_cache(self):
         try:
-            results = list(self.searcher.text(query, max_results=max_results))
-            texts = [r["body"] for r in results if "body" in r]
-            return "\n".join(texts[:3]) if texts else None
+            with open(self.cache_path) as f:
+                self.cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.cache = {}
+
+    def _save_cache(self):
+        try:
+            os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+            with open(self.cache_path, "w") as f:
+                json.dump(self.cache, f)
         except Exception:
-            return None
+            pass
+
+    def _search_wikipedia(self, query, max_results=3):
+        try:
+            import requests as req
+            headers = {"User-Agent": "ProjectAdam/1.0 (https://github.com/kilvz/Project-Adam)"}
+            params = {
+                "action": "query", "list": "search",
+                "srsearch": query, "format": "json", "srlimit": max_results
+            }
+            r = req.get("https://en.wikipedia.org/w/api.php", params=params,
+                        headers=headers, timeout=10, verify=False)
+            data = r.json()
+            results = data.get("query", {}).get("search", [])
+            if results:
+                return "\n".join(
+                    r["title"] + ": " + re.sub(r"<[^>]+>", "", r.get("snippet", ""))
+                    for r in results[:max_results]
+                )
+        except Exception:
+            pass
+        return None
+
+    def search(self, query, max_results=3):
+        # check cache first
+        cache_key = query.lower().strip()
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+
+        result = None
+
+        # tier 1: DDGS
+        if self.searcher:
+            try:
+                results = list(self.searcher.text(query, max_results=max_results))
+                texts = [r["body"] for r in results if "body" in r]
+                if texts:
+                    result = "\n".join(texts[:max_results])
+            except Exception:
+                pass
+
+        # tier 2: Wikipedia fallback
+        if not result:
+            result = self._search_wikipedia(query, max_results)
+
+        # cache whatever we got
+        if result:
+            self.cache[cache_key] = result
+            self._save_cache()
+
+        return result
 
 # ═══════════════════════════════════════════════════════════════════════
 # 8. OFFLINE CONSOLIDATOR — Background replay + abstraction + cross-user distillation
@@ -788,7 +851,7 @@ def compute_implicit_reward(user_input, user_profile=None, embedder=None):
     reward = sentiment * 0.6 + engagement * 0.3
     return max(-1.0, min(1.0, reward))
 
-def extract_topics(text):
+def extract_topics(text, embedder=None):
     stopwords = {"the", "a", "an", "is", "are", "was", "were", "it", "its",
         "i", "you", "he", "she", "we", "they", "my", "your", "his", "her",
         "this", "that", "to", "of", "in", "for", "on", "and", "or", "but",
@@ -796,8 +859,30 @@ def extract_topics(text):
         "with", "about", "at", "by", "from", "as", "so", "if", "then",
         "what", "why", "how", "when", "where", "who", "which", "all",
         "can", "will", "would", "should", "could"}
-    words = text.lower().split()
-    return list(set(w.strip(".,!?") for w in words if w.strip(".,!?") not in stopwords and len(w) > 3))
+    words = list(set(w.strip(".,!?") for w in text.lower().split()
+                     if w.strip(".,!?") not in stopwords and len(w) > 3))
+    # D18: use embedder to merge semantically similar words
+    if embedder is not None and len(words) > 2:
+        try:
+            embs = embedder.encode(words, convert_to_numpy=True)
+            import numpy as np
+            sims = embs @ embs.T
+            merged = []
+            used = set()
+            for i in range(len(words)):
+                if i in used:
+                    continue
+                group = [words[i]]
+                used.add(i)
+                for j in range(i + 1, len(words)):
+                    if j not in used and sims[i, j] > 0.65:
+                        group.append(words[j])
+                        used.add(j)
+                merged.append(group[0])  # use first word as representative
+            return merged
+        except Exception:
+            pass
+    return words
 
 NAME_PATTERNS = [
     (r"my name is (\w+)", 1),
@@ -834,7 +919,7 @@ class ActionSelector:
         self.meta = metacognitive
         self.persona = persona
 
-    def select(self, user_input, conversation_history, user_profile=None, sfl_q=None):
+    def select(self, user_input, conversation_history, user_profile=None, sfl_q=None, token_callback=None):
         semantic_ctx = self.semantic.retrieve(user_input, 3)
         known_facts = [f"{cat}: {fact_str}" for cat, fact_str, score in semantic_ctx if score > 0.3]
 
@@ -894,18 +979,30 @@ class ActionSelector:
         if meta_action == "explore":
             temp = max(temp, 0.85)
 
-        with torch.no_grad():
-            out = self.model.generate(
-                **inputs,
-                max_new_tokens=256,
-                temperature=temp,
-                top_p=0.9,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id,
-            )
+        # D14/D19: Streaming generation with TextIteratorStreamer
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+        gen_kwargs = dict(
+            **inputs,
+            max_new_tokens=256,
+            temperature=temp,
+            top_p=0.9,
+            do_sample=True,
+            pad_token_id=self.tokenizer.eos_token_id,
+            streamer=streamer,
+        )
+        thread = threading.Thread(target=self.model.generate, kwargs=gen_kwargs, daemon=True)
+        thread.start()
 
-        reply = self.tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        reply = reply.split("\n")[0].strip()
+        reply_parts = []
+        for token_str in streamer:
+            if token_callback:
+                token_callback(token_str)
+            else:
+                print(token_str, end="", flush=True)
+            reply_parts.append(token_str)
+        if not token_callback:
+            print()
+        reply = "".join(reply_parts).strip().split("\n")[0].strip()
 
         self.meta.record_outcome(used_slow_path=use_search)
         return reply, use_search, web_context, meta_action
@@ -954,25 +1051,18 @@ class CognitiveAgent:
         self.metacognitive = MetacognitiveController()
         self.web_search = WebSearch()
 
-        # C12: Wrap with LoRA (trainable adapters, frozen base)
+        # C12/D16: Wrap with LoRA (trainable adapters, frozen base)
         self._lora_config = LoraConfig(
             r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
             lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
         )
         self.model = get_peft_model(self.model, self._lora_config)
         self.model.eval()
+        self._current_adapter = "base"
         self._adapter_dir = MEMORY_DIR / "adapters"
         self._adapter_dir.mkdir(exist_ok=True)
-        adapter_path = self._adapter_dir / "default"
-        if adapter_path.exists() and (adapter_path / "adapter_config.json").exists():
-            try:
-                self.model.load_adapter(str(adapter_path), adapter_name="default")
-                self.model.set_adapter("default")
-                print("  [lora] loaded persisted adapter")
-            except Exception:
-                pass
         lora_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print(f"LoRA adapters: {lora_trainable:,} trainable params")
+        print(f"LoRA adapters: {lora_trainable:,} trainable params ({self._current_adapter})")
 
         self.action_selector = ActionSelector(
             self.tokenizer, self.model,
@@ -996,18 +1086,21 @@ class CognitiveAgent:
             self.neural_memory.load_state_dict(torch.load(nm_path, map_location=DEVICE, weights_only=True))
             print("[neural memory loaded]")
 
-    def chat(self, user_input):
+    def chat(self, user_input, token_callback=None):
         self.working_memory.add("user", user_input)
 
         # detect or confirm user identity
         known_names = self.user_profiles.list_users()
         detected = detect_user(user_input, known_names)
         if detected:
+            is_new = detected not in known_names
             self.current_profile = self.user_profiles.set_current(detected)
-            if detected not in known_names:
+            if is_new:
                 print(f"  [hello {detected}, storing your profile]")
             else:
                 print(f"  [welcome back {detected}]")
+            # D16: switch to user's LoRA adapter
+            self._switch_adapter(detected)
 
         elif self.current_profile is None:
             self.current_profile = self.user_profiles.get_or_create("Stranger")
@@ -1050,11 +1143,17 @@ class CognitiveAgent:
         sfl_loss = self.sfl_module.update(features, reward)
         q_value = self.sfl_module(torch.as_tensor(features, dtype=torch.float32, device=DEVICE)).item()
 
+        # side-effects before generation (so stdout stays clean during streaming)
+        topics = extract_topics(user_input, self.episodic_memory.embedder)
+        self._update_user_profile(user_input, reward, topics)
+        self._mint_custom_rules()
+
         # generate response with user-adapted persona + SFL-driven temperature + metacognitive action
         reply, used_search, web_context, meta_action = self.action_selector.select(
             user_input, self.working_memory.get_context(),
             user_profile=self.current_profile,
             sfl_q=q_value,
+            token_callback=token_callback,
         )
 
         # B6: REPLAY action triggers inline consolidation
@@ -1067,19 +1166,17 @@ class CognitiveAgent:
 
         self.working_memory.add("assistant", reply)
 
-        # update user profile
-        topics = extract_topics(user_input)
-        self._update_user_profile(user_input, reply, reward, topics)
-
         # update rule weights based on reward
         self._update_rule_weights(reward)
 
         # store latest Q-value in profile
         if self.current_profile is not None:
             self.current_profile["last_q"] = round(q_value, 3)
-
-        # mint new rules from sustained topic patterns
-        self._mint_custom_rules()
+            self.current_profile.setdefault("q_history", []).append(round(q_value, 3))
+            self.current_profile.setdefault("reward_history", []).append(round(reward, 3))
+            if len(self.current_profile["q_history"]) > 100:
+                self.current_profile["q_history"] = self.current_profile["q_history"][-100:]
+                self.current_profile["reward_history"] = self.current_profile["reward_history"][-100:]
 
         # C12: periodic LoRA training (every 10 interactions)
         if self.current_profile is not None:
@@ -1095,7 +1192,7 @@ class CognitiveAgent:
         engagement = min(1.0, len(user_input) / 100.0)
         interaction_norm = min(1.0, profile.get("interaction_count", 0) / 100.0)
         topic_novelty = 0.0
-        topics = extract_topics(user_input)
+        topics = extract_topics(user_input, self.episodic_memory.embedder if hasattr(self, 'episodic_memory') else None)
         known = profile.get("topics", {})
         if topics:
             novel = sum(1 for t in topics if t not in known)
@@ -1118,11 +1215,11 @@ class CognitiveAgent:
         except Exception:
             pass
 
-    def _update_user_profile(self, user_input, reply, reward, topics):
+    def _update_user_profile(self, user_input, reward, topics):
         if self.current_profile is None:
             return
         name = self.current_profile.get("name", "Stranger")
-        self.user_profiles.update_after_turn(name, user_input, reply, reward, topics)
+        self.user_profiles.update_after_turn(name, user_input, "", reward, topics)
 
     def _update_rule_weights(self, reward):
         if self.current_profile is None or not self.persona.behavior_rules:
@@ -1233,13 +1330,41 @@ class CognitiveAgent:
         if total_loss > 0:
             self._save_adapter()
 
-    def _save_adapter(self):
-        """Save LoRA adapter weights to disk."""
-        path = self._adapter_dir / "default"
+    def _save_adapter(self, name=None):
+        """Save LoRA adapter weights for a user (or current active adapter)."""
+        name = name or self._current_adapter
+        path = self._adapter_dir / name
+        path.mkdir(parents=True, exist_ok=True)
         try:
-            self.model.save_pretrained(str(path))
+            # save only LoRA weights, not full PEFT config
+            state = {k: v for k, v in self.model.state_dict().items() if "lora" in k}
+            torch.save(state, path / "adapter_model.safetensors")
+            # also save config for detectability
+            import json
+            json.dump({"adapter_name": name}, open(path / "adapter_config.json", "w"))
         except Exception:
             pass
+
+    def _switch_adapter(self, user):
+        """Save current adapter, load user's if exists, or keep base."""
+        if user == self._current_adapter:
+            return
+        # save current adapter first
+        if self._current_adapter != "base":
+            self._save_adapter(self._current_adapter)
+        # check if user adapter exists on disk
+        user_path = self._adapter_dir / user
+        adapter_exists = (user_path / "adapter_model.safetensors").exists()
+        if adapter_exists:
+            try:
+                state = torch.load(user_path / "adapter_model.safetensors", map_location=DEVICE, weights_only=True)
+                with torch.no_grad():
+                    for name, param in self.model.named_parameters():
+                        if name in state:
+                            param.copy_(state[name])
+            except Exception:
+                pass
+        self._current_adapter = user
 
 
 
@@ -1303,6 +1428,36 @@ class CognitiveAgent:
                 print(f"  Interactions: {s['total']} | Avg confidence: {s['avg_confidence']} | Slow path: {s['slow_path_rate']}")
                 print(f"  Last SFL Q: {q} | Custom rules: {len(self.current_profile.get('custom_rules', [])) if self.current_profile else 0}")
                 continue
+            if user == "/dashboard":
+                p = self.current_profile or {}
+                s = self.metacognitive.stats()
+                print(f"  ┌─ DASHBOARD ──────────────────────────────")
+                print(f"  │ User: {p.get('name', '—')}")
+                print(f"  │ Interactions: {p.get('interaction_count', 0)}")
+                print(f"  │ Avg sentiment: {p.get('avg_sentiment', 0):.2f}")
+                print(f"  │ Avg confidence: {s.get('avg_confidence', 0)}")
+                print(f"  │ Last action: {s.get('last_action', '—')}")
+                print(f"  │ Slow path: {s.get('slow_path_rate', 0)}")
+                q_hist = p.get('q_history', [])
+                r_hist = p.get('reward_history', [])
+                if q_hist:
+                    print(f"  │ SFL Q (last 20): {'█' * int(abs(q_hist[-1]) * 10)} {q_hist[-1]:.2f}")
+                if r_hist:
+                    recent = r_hist[-20:]
+                    avg_r = sum(recent) / len(recent)
+                    print(f"  │ Reward trend: ↑{sum(1 for r in recent if r > 0)} ↓{sum(1 for r in recent if r < 0)} "
+                          f"avg={avg_r:.2f} last={r_hist[-1]:.2f}")
+                c_hist = s.get('confidence_history', [])
+                if c_hist:
+                    print(f"  │ Confidence: avg={sum(c_hist)/len(c_hist):.2f} "
+                          f"last={c_hist[-1]:.2f} low={sum(1 for c in c_hist if c < 0.3)}")
+                rw = p.get('rule_weights', {})
+                if rw:
+                    vals = list(rw.values())
+                    print(f"  │ Rule weights: max={max(vals):.2f} min={min(vals):.2f} "
+                          f"spread={max(vals)-min(vals):.2f}")
+                print(f"  └──────────────────────────────────────────")
+                continue
             if user == "/save":
                 self.episodic_memory.save()
                 self.semantic_memory.save()
@@ -1342,13 +1497,51 @@ class CognitiveAgent:
                 continue
 
             reply = self.chat(user)
-            print(f"Adam: {reply}")
+            # D14: reply is streamed token-by-token inside select(), no extra print needed
+
+# ═══════════════════════════════════════════════════════════════════════
+# D19: Gradio Web UI
+# ═══════════════════════════════════════════════════════════════════════
+
+def run_web_ui(agent):
+    import gradio as gr
+
+    def respond(message, history):
+        full_reply = ""
+        def on_token(tok):
+            nonlocal full_reply
+            full_reply += tok
+        agent.chat(message, token_callback=on_token)
+        return full_reply
+
+    def respond_stream(message, history):
+        full_reply = ""
+        def on_token(tok):
+            nonlocal full_reply
+            full_reply += tok
+        agent.chat(message, token_callback=on_token)
+        yield full_reply
+
+    with gr.Blocks(title="Project Adam", theme=gr.themes.Soft()) as demo:
+        gr.Markdown("# Project Adam — COGNET Conversational AI")
+        chatbot = gr.ChatInterface(
+            fn=respond_stream,
+            type="tuples",
+            title="Adam",
+            description="A self-learning AI that adapts to each user.",
+            theme=gr.themes.Soft(),
+        )
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
 
 if __name__ == "__main__":
+    import sys
     agent = CognitiveAgent()
     if agent.persona and agent.persona.essence:
         print(f"[persona] Adam — {agent.persona.essence[:80]}...")
         print(f"[persona] {len(agent.persona.behavior_rules)} behavioral rules loaded")
     else:
         print("[persona] no persona file found, using generic assistant")
-    agent.run()
+    if "--web" in sys.argv:
+        run_web_ui(agent)
+    else:
+        agent.run()
