@@ -581,11 +581,7 @@ class WebSearch:
             from ddgs import DDGS
             self.searcher = DDGS()
         except Exception:
-            try:
-                from duckduckgo_search import DDGS
-                self.searcher = DDGS()
-            except Exception:
-                pass
+            pass
 
     def _load_cache(self):
         try:
@@ -605,6 +601,8 @@ class WebSearch:
     def _search_wikipedia(self, query, max_results=3):
         try:
             import requests as req
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             headers = {"User-Agent": "ProjectAdam/1.0 (https://github.com/kilvz/Project-Adam)"}
             params = {
                 "action": "query", "list": "search",
