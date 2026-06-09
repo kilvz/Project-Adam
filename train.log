@@ -1,0 +1,25 @@
+Loading FineWeb sample-10BT (50000 docs)...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  Loaded 10000 examples
+  Loaded 20000 examples
+  Loaded 30000 examples
+  Loaded 40000 examples
+  Loaded 50000 examples
+
+Samples: 577884 | Docs: 50000
+Effective batch: 8 | Seq len: 256
+Building Titans MAC model...
+Parameters: 9,097,772
+Device: cuda
+step     50/50000 | loss 13.3864 | ppl 651070.20 | tok/s 1530 | 67s
+step    100/50000 | loss 10.8224 | ppl 50130.55 | tok/s 1540 | 133s
+step    150/50000 | loss 9.9814 | ppl 21619.72 | tok/s 1551 | 198s
+step    200/50000 | loss 9.3633 | ppl 11652.55 | tok/s 1552 | 264s
+step    250/50000 | loss 8.9451 | ppl 7670.14 | tok/s 1556 | 329s
+step    300/50000 | loss 8.7156 | ppl 6097.45 | tok/s 1554 | 395s
+step    350/50000 | loss 8.4407 | ppl 4631.88 | tok/s 1553 | 461s
+step    400/50000 | loss 8.2300 | ppl 3752.00 | tok/s 1558 | 526s
+step    450/50000 | loss 8.1195 | ppl 3359.25 | tok/s 1560 | 591s
+step    500/50000 | loss 8.0045 | ppl 2994.32 | tok/s 1559 | 657s
+step    550/50000 | loss 7.8136 | ppl 2474.08 | tok/s 1560 | 722s
+step    600/50000 | loss 7.6058 | ppl 2009.84 | tok/s 1559 | 788s
