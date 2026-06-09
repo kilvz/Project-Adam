@@ -18,6 +18,10 @@ venv/
 # Unused experiments (moved to unused/)
 unused/
 
+# Internal planning docs (not for consumers)
+PLAN.md
+INTEGRATION_PLAN.md
+
 # OS
 .DS_Store
 Thumbs.db
