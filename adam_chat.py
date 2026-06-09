@@ -5,7 +5,10 @@ import numpy as np
 import json, os, time, re, pickle, threading, math, random, sqlite3
 from pathlib import Path
 from collections import defaultdict
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments, TextIteratorStreamer
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
+    TrainingArguments, TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList,
+)
 from peft import LoraConfig, get_peft_model, PeftModel
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -1020,16 +1023,31 @@ class ActionSelector:
         if meta_action == "explore":
             temp = max(temp, 0.85)
 
-        # D14/D19: Streaming generation with TextIteratorStreamer
+        # E25: Early stopping after complete sentence
+        class _SentenceStopper(StoppingCriteria):
+            def __init__(self, tok, min_tokens=20):
+                self.tok = tok
+                self.min = min_tokens
+                self.count = 0
+            def __call__(self, input_ids, scores, **kw):
+                self.count += 1
+                if self.count < self.min:
+                    return False
+                last = self.tok.decode(input_ids[0, -1:])
+                if last in {".", "!", "?"}:
+                    return True
+                return False
+
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
         gen_kwargs = dict(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=128,
             temperature=temp,
             top_p=0.9,
             do_sample=True,
             pad_token_id=self.tokenizer.eos_token_id,
             streamer=streamer,
+            stopping_criteria=StoppingCriteriaList([_SentenceStopper(self.tokenizer)]),
         )
         thread = threading.Thread(target=self.model.generate, kwargs=gen_kwargs, daemon=True)
         thread.start()
