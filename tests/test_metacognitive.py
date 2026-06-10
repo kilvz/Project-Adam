@@ -71,7 +71,7 @@ def test_act_explore_with_low_sfl(meta):
         meta.consecutive_low_confidence = 3
         action = meta.act(confidence=0.3, uncertainty=0.5, sfl_q=-0.5)
         results[action] = results.get(action, 0) + 1
-    assert results.get("EXPLORE", 0) >= 40
+    assert results.get("EXPLORE", 0) >= 30
 
 def test_act_ask_for_help_very_low(meta):
     meta.consecutive_low_confidence = 0

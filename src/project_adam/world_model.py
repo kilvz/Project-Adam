@@ -65,12 +65,12 @@ class WorldModel:
                 return {attribute: ent.get(attribute, (0.0, self._prior_var, 0))}
             return dict(ent)
 
-    def observe_from_text(self, text, sentiment):
+    def observe_from_text(self, text, confidence=0.5):
         entities = set()
         for match in re.finditer(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text):
             entities.add(match.group())
         for e in entities:
-            self.observe(e, "sentiment", sentiment, confidence=0.5)
+            self.observe(e, "sentiment", confidence, confidence=confidence)
         noun_phrases = re.findall(r'\b[A-Z][a-z]+(?:\s+[a-z]+)*\b', text)
         if len(noun_phrases) >= 2:
             for i in range(len(noun_phrases) - 1):
@@ -95,3 +95,13 @@ class WorldModel:
     def uncertainty(self, entity, attribute):
         _, var, _ = self.entities.get(entity.lower(), {}).get(attribute, (0.0, self._prior_var, 0))
         return math.sqrt(var)
+
+    def simulate(self, entity, attribute, value):
+        pred = self.predict_transition(entity, attribute)
+        if pred is not None:
+            mean_delta, _ = pred
+            predicted_next = value + mean_delta
+        else:
+            prior = self.query(entity, attribute).get(attribute, (0.0, self._prior_var, 0))
+            predicted_next = prior[0]
+        return predicted_next
