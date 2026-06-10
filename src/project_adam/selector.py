@@ -149,7 +149,7 @@ class ActionSelector:
 
         confidence, uncertainty = self.metacognitive.estimate_confidence(None)
 
-        if confidence >= 0.7 and len(user_input) < 50:
+        if confidence >= 0.7 and uncertainty < 0.4 and len(user_input) < 50:
             reply, intent, idx = self._fast_path(user_input)
             if reply is not None:
                 self._last_fast_intent = intent
