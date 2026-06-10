@@ -6,6 +6,36 @@ import torch.nn.functional as F
 _SPARSITY_KEEP_FRAC = 0.1
 
 
+class VisionEncoder(nn.Module):
+    def __init__(self, input_dim=2048, latent_dim=128):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 512), nn.ReLU(), nn.Linear(512, latent_dim * 2),
+        )
+    def forward(self, x):
+        mu_logvar = self.encoder(x)
+        mu, logvar = mu_logvar.chunk(2, dim=-1)
+        std = torch.exp(0.5 * logvar)
+        z = mu + torch.randn_like(std) * std
+        return z
+
+
+class AudioEncoder(nn.Module):
+    def __init__(self, input_dim=1024, latent_dim=64):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 256), nn.ReLU(), nn.Linear(256, latent_dim * 2),
+        )
+    def forward(self, x):
+        mu_logvar = self.encoder(x)
+        mu, logvar = mu_logvar.chunk(2, dim=-1)
+        std = torch.exp(0.5 * logvar)
+        z = mu + torch.randn_like(std) * std
+        return z
+
+
 class SensoryEncoder(nn.Module):
     def __init__(self, input_dim=896, latent_dim=128, beta=0.001, dtype=torch.float32):
         super().__init__()
@@ -54,17 +84,25 @@ class SensoryEncoder(nn.Module):
         sparsity_loss = self.sparsity_weight * torch.abs(z).mean()
         return z, recon_loss + self.beta * kl_loss + sparsity_loss
 
+    def compute_complexity(self, x):
+        _, mu_logvar = self.encoder(x).chunk(2, dim=-1)
+        mu, logvar = mu_logvar.chunk(2, dim=-1)
+        kl = self._kl_with_learned_prior(mu, logvar)
+        return kl
+
     def compute_loss(self, x, rpe=0.0):
-        _, vae_loss_val = self.forward(x)
-        task_loss = max(0.0, -rpe * 0.1)
-        return vae_loss_val + task_loss
+        z, vae_loss_val = self.forward(x)
+        complexity = vae_loss_val
+        task_loss = -rpe * 0.1
+        return complexity + task_loss, z
 
     def train_step(self, x, rpe=0.0):
-        loss = self.compute_loss(x, rpe)
+        loss, z = self.compute_loss(x, rpe)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        return loss.item()
+        return loss.item(), z
 
     def vae_loss(self, x, rpe_scale=1.0):
-        return self.train_step(x, rpe_scale)
+        loss, z = self.train_step(x, rpe_scale)
+        return loss

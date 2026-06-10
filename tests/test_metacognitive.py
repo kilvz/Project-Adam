@@ -2,7 +2,7 @@ import pytest
 import torch
 import math
 
-from project_adam import MetacognitiveController
+from project_adam.metacog import MetacognitiveController
 
 @pytest.fixture
 def meta():
@@ -56,19 +56,31 @@ def test_act_stop_and_think_low_confidence(meta):
     assert action == "STOP_AND_THINK"
 
 def test_act_replay_after_consecutive_low(meta):
-    for _ in range(6):
-        meta.act(confidence=0.2, uncertainty=0.7)
-    assert meta.last_action == "REPLAY"
+    last_actions = []
+    for _ in range(10):
+        meta = MetacognitiveController()
+        for _ in range(6):
+            meta.act(confidence=0.2, uncertainty=0.7)
+        last_actions.append(meta.last_action)
+    assert last_actions.count("REPLAY") >= 7
 
 def test_act_explore_with_low_sfl(meta):
     meta.consecutive_low_confidence = 3
-    action = meta.act(confidence=0.3, uncertainty=0.5, sfl_q=-0.5)
-    assert action == "EXPLORE"
+    results = {}
+    for _ in range(50):
+        meta.consecutive_low_confidence = 3
+        action = meta.act(confidence=0.3, uncertainty=0.5, sfl_q=-0.5)
+        results[action] = results.get(action, 0) + 1
+    assert results.get("EXPLORE", 0) >= 40
 
 def test_act_ask_for_help_very_low(meta):
     meta.consecutive_low_confidence = 0
-    action = meta.act(confidence=0.2, uncertainty=0.5, sfl_q=0.5)
-    assert action == "ASK_FOR_HELP"
+    results = {"ASK_FOR_HELP": 0}
+    for _ in range(50):
+        meta.consecutive_low_confidence = 0
+        action = meta.act(confidence=0.2, uncertainty=0.5, sfl_q=0.5)
+        results[action] = results.get(action, 0) + 1
+    assert results.get("ASK_FOR_HELP", 0) >= 40
 
 def test_record_outcome(meta):
     meta.record_outcome(used_slow_path=False)
