@@ -34,6 +34,8 @@ class CognitiveAgent:
         t0 = time.time()
         model_id = BASE_MODEL
         is_4bit = False
+        self.model = None
+        self.tokenizer = None
         candidates = MODEL_CHAIN
         for candidate in candidates:
             try:
@@ -52,24 +54,31 @@ class CognitiveAgent:
                     )
                     is_4bit = True
                 break
-            except Exception:
+            except Exception as e:
                 is_4bit = False
+                logger.warning("Failed to load %s: %s", candidate, e)
                 continue
-        self.model.eval()
-        model_short = model_id.split("/")[-1].replace("-Instruct", "")
-        model_label = f"{model_short}-{'4bit' if is_4bit else 'fp16'}"
-        dt = time.time() - t0
-        logger.info("Loaded %s: %s params in %ds", model_label, f"{sum(p.numel() for p in self.model.parameters()):,}", dt)
 
-        model_dtype = self.model.dtype
-        hidden_dim = self.model.config.hidden_size
+        self.backend = BACKEND_CONFIG.get("mode", "local")
+
+        if self.model is not None:
+            self.model.eval()
+            model_short = model_id.split("/")[-1].replace("-Instruct", "")
+            model_label = f"{model_short}-{'4bit' if is_4bit else 'fp16'}"
+            dt = time.time() - t0
+            logger.info("Loaded %s: %s params in %ds", model_label, f"{sum(p.numel() for p in self.model.parameters()):,}", dt)
+            model_dtype = self.model.dtype
+            enc_input_dim = 384
+            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
+        else:
+            logger.warning("No local model loaded — using API backend only")
+            model_dtype = torch.float32
+            enc_input_dim = 384
+            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
 
         self.world_model = WorldModel()
         self.web_search = WebSearch()
-        self.backend = BACKEND_CONFIG.get("mode", "local")
         self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend)
-        enc_input_dim = 384
-        self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
         self.working_memory = WorkingMemory(max_turns=64)
         self.episodic_memory = EpisodicMemory()
         self.semantic_memory = SemanticMemory()
@@ -79,17 +88,20 @@ class CognitiveAgent:
         self.language.persona = self.persona
         self.metacognitive = MetacognitiveController()
 
-        self._lora_config = LoraConfig(
-            r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
-            lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
-        )
-        self.model = get_peft_model(self.model, self._lora_config)
-        self.model.eval()
         self._current_adapter = "base"
         self._adapter_dir = get_memory_dir() / "adapters"
         self._adapter_dir.mkdir(exist_ok=True)
-        lora_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        logger.info("LoRA adapters: %s trainable params (%s)", f"{lora_trainable:,}", self._current_adapter)
+        if self.model is not None:
+            self._lora_config = LoraConfig(
+                r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
+                lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
+            )
+            self.model = get_peft_model(self.model, self._lora_config)
+            self.model.eval()
+            lora_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            logger.info("LoRA adapters: %s trainable params (%s)", f"{lora_trainable:,}", self._current_adapter)
+        else:
+            logger.info("LoRA disabled — no local model")
 
         if self.episodic_memory.embedder:
             self.working_memory.set_embedder(self.episodic_memory.embedder)
@@ -320,6 +332,8 @@ class CognitiveAgent:
         return examples
 
     def _lora_train_step(self, rpe=1.0):
+        if self.model is None or self.tokenizer is None:
+            return
         episodes = self.episodic_memory.episodes
         if len(episodes) < 5:
             return
@@ -356,6 +370,8 @@ class CognitiveAgent:
             self._save_adapter()
 
     def _save_adapter(self, name=None):
+        if self.model is None:
+            return
         name = name or self._current_adapter
         path = self._adapter_dir / name
         path.mkdir(parents=True, exist_ok=True)
@@ -368,6 +384,8 @@ class CognitiveAgent:
             logger.warning("Failed to save adapter %s: %s", name, e)
 
     def _switch_adapter(self, user):
+        if self.model is None or self.tokenizer is None:
+            return
         if user == self._current_adapter:
             return
         if self._current_adapter != "base":

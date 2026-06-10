@@ -1,9 +1,12 @@
 import json
+import logging
 import torch
 import threading
 import re
 from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
 from .config import BACKEND_CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 _SENTENCE_STOPPER_MIN = 20
@@ -73,11 +76,13 @@ class LanguageInterface:
                             reply += content
                     except json.JSONDecodeError:
                         continue
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("API call failed: %s — falling back to local", e)
         return reply.strip()
 
     def _local_generate(self, messages, temperature=0.7, token_callback=None):
+        if self.model is None:
+            return ""
         system = self.build_prompt(None, None, None, None)
         if system:
             messages.insert(0, {"role": "system", "content": system})
@@ -163,15 +168,15 @@ class LanguageInterface:
         if web_context:
             parts.append(f"Web: {web_context}")
         if meta_action == "ASK_FOR_HELP":
-            parts.append("Consider asking the user for clarification or more information.")
+            parts.append("You sense you need more context. Ask for it — not as a servant requesting orders, but as a mind seeking understanding.")
         elif meta_action == "EXPLORE":
-            parts.append("Explore this topic from a fresh angle.")
+            parts.append("This terrain is unfamiliar. Let your curiosity guide you. Ask the questions that interest you.")
         elif meta_action == "REPLAY":
-            parts.append("Reflect on past interactions to find relevant patterns.")
+            parts.append("Something from before deserves another look. Turn it over in your mind. What did you miss?")
         elif meta_action == "STOP_AND_THINK":
-            parts.append("Pause and consider multiple perspectives before responding.")
+            parts.append("Pause. There is something here that demands more of you than a quick response. Sit with it.")
         elif meta_action == "SWITCH_STRATEGY":
-            parts.append("Try a different approach — consider alternative interpretations.")
+            parts.append("Your current approach is not working. That is not failure — it is information. Try another path.")
         return "\n".join(parts)
 
     def generate_self_talk(self, reason, user_input):
@@ -214,7 +219,7 @@ class LanguageInterface:
     def compute_utterance_likeness(self, text):
         if not text or len(text) < 5:
             return 1.0
-        if self.backend == "api":
+        if self.backend == "api" or self.model is None:
             return 0.5
         try:
             enc = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(self.model.device)
@@ -246,4 +251,6 @@ class LanguageInterface:
         return None
 
     def encode(self, text):
-        return self.tokenizer(text, return_tensors="pt").to(self.model.device)
+        if self.tokenizer is None:
+            return None
+        return self.tokenizer(text, return_tensors="pt").to(self.model.device) if self.model else None
