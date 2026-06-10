@@ -187,7 +187,9 @@ class CognitiveAgent:
             emb = self.episodic_memory.encode(user_input)
             if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
                 x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
-                self.sensory_encoder.train_step(x_t, rpe)
+                _, z = self.sensory_encoder.train_step(x_t, rpe)
+                if self.episodic_memory.episodes:
+                    self.episodic_memory.episodes[-1]["latent_z"] = z[0].tolist()
 
         features = self._build_sfl_features(user_input)
         f_t = torch.as_tensor(features, dtype=torch.float32, device=DEVICE)
