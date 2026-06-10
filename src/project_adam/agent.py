@@ -78,8 +78,8 @@ class CognitiveAgent:
 
         self.world_model = WorldModel()
         self.web_search = WebSearch()
-        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend)
         self.working_memory = WorkingMemory(max_turns=64)
+        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend, working_memory=self.working_memory)
         self.episodic_memory = EpisodicMemory()
         self.semantic_memory = SemanticMemory()
         self.procedural_memory = ProceduralMemory()
@@ -103,6 +103,9 @@ class CognitiveAgent:
         else:
             logger.info("LoRA disabled — no local model")
 
+        self.sfl_module = SFLModule(n_features=7).to(DEVICE)
+        self.td_core = TDCore(n_features=8)
+
         if self.episodic_memory.embedder:
             self.working_memory.set_embedder(self.episodic_memory.embedder)
         self.working_memory.set_episodic_memory(self.episodic_memory)
@@ -111,9 +114,8 @@ class CognitiveAgent:
             self.language,
             self.episodic_memory, self.semantic_memory,
             self.metacognitive, self.world_model, self.persona,
+            td_core=self.td_core,
         )
-        self.sfl_module = SFLModule(n_features=7).to(DEVICE)
-        self.td_core = TDCore(n_features=7)
         self.consolidator = OfflineConsolidator(
             self.episodic_memory, self.semantic_memory,
             world_model=self.world_model,
@@ -141,7 +143,12 @@ class CognitiveAgent:
                     x_t = x_t.to(dtype=next(self.sensory_encoder.parameters()).dtype)
                     z, _ = self.sensory_encoder.forward(x_t)
                     enc_sparsity = float((torch.abs(z) < 0.01).float().mean())
-        return [sentiment, engagement, interaction_norm, topic_count, reward, sfl_q, enc_sparsity]
+        sem_confidence = 0.0
+        if hasattr(self, 'semantic_memory') and user_input.strip():
+            results = self.semantic_memory.retrieve(user_input, k=1)
+            if results:
+                sem_confidence = float(results[0][2])
+        return [sentiment, engagement, interaction_norm, topic_count, reward, sfl_q, enc_sparsity, sem_confidence]
 
     def chat(self, user_input, token_callback=None):
         self.working_memory.add("user", user_input)
@@ -203,7 +210,8 @@ class CognitiveAgent:
             if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
                 x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
                 x_t = x_t.to(dtype=next(self.sensory_encoder.parameters()).dtype)
-                _, z = self.sensory_encoder.train_step(x_t, rpe)
+                enc_conf = self.metacognitive.estimate_confidence(None)[0]
+                _, z = self.sensory_encoder.train_step(x_t, rpe * max(0.5, enc_conf))
                 if self.episodic_memory.episodes:
                     self.episodic_memory.episodes[-1]["latent_z"] = z[0].tolist()
 
@@ -224,7 +232,7 @@ class CognitiveAgent:
         talk_reason = self.metacognitive.should_self_talk(confidence, q_value)
         self_talk = self.language.generate_self_talk(talk_reason, user_input)
         if self_talk:
-            self.working_memory.add("assistant", f"[self-talk] {self_talk}")
+            self.working_memory.add("adam", f"[self-talk] {self_talk}")
 
         procedural_hint = self.procedural_memory.retrieve(user_input)
         if procedural_hint and self.current_profile:
@@ -247,7 +255,8 @@ class CognitiveAgent:
             user_input, reply, reward, self.persona, self.current_profile
         )
         self.episodic_memory.update_last_action(reply, backend=self.backend)
-        self.working_memory.add("assistant", reply)
+        if self.working_memory.turns:
+            self.working_memory.turns[-1]["content"] = reply
         self._update_rule_weights(reward)
 
         self.metacognitive.record_outcome(used_search, reward=reward)

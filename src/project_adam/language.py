@@ -28,13 +28,14 @@ class _SentenceStopper(StoppingCriteria):
 
 class LanguageInterface:
     def __init__(self, model, tokenizer, persona=None, web_search=None,
-                 world_model=None, backend=None):
+                 world_model=None, backend=None, working_memory=None):
         self.model = model
         self.tokenizer = tokenizer
         self.persona = persona
         self.web_search = web_search
         self.world_model = world_model
         self.backend = backend or BACKEND_CONFIG.get("mode", "local")
+        self.working_memory = working_memory
 
     def _api_generate(self, messages, temperature=0.7, token_callback=None,
                       meta_action=None):
@@ -124,7 +125,8 @@ class LanguageInterface:
         return reply.strip()
 
     def generate(self, messages, meta_action=None, token_callback=None,
-                 temperature=0.7, user_profile=None):
+                 temperature=0.7, user_profile=None, confidence=None,
+                 uncertainty=None):
         used_search = False
         web_context = None
         if meta_action in ("ASK_FOR_HELP", "EXPLORE") and self.web_search is not None:
@@ -135,7 +137,9 @@ class LanguageInterface:
                 web_context = result
 
         msgs = list(messages)
-        system = self.build_prompt(user_profile, web_context, web_context, meta_action)
+        system = self.build_prompt(user_profile, web_context, web_context,
+                                   meta_action, confidence=confidence,
+                                   uncertainty=uncertainty)
         if system:
             msgs.insert(0, {"role": "system", "content": system})
 
@@ -156,14 +160,21 @@ class LanguageInterface:
         if self.world_model is not None and reply:
             speaker_conf = self.compute_utterance_likeness(reply)
             self.world_model.observe_from_text(reply, speaker_conf)
+        if self.working_memory is not None and reply:
+            self.working_memory.add("adam", reply)
         return reply, used_search, web_context
 
-    def build_prompt(self, user_profile, memory_context, web_context, meta_action):
+    def build_prompt(self, user_profile, memory_context, web_context,
+                     meta_action, confidence=None, uncertainty=None):
         parts = []
         if self.persona:
             sys_prompt = self.persona.build_system_prompt(user_profile)
             if sys_prompt:
                 parts.append(sys_prompt)
+        if confidence is not None:
+            parts.append(f"Your confidence: {confidence:.1f}")
+        if uncertainty is not None:
+            parts.append(f"Your uncertainty: {uncertainty:.1f}")
         if memory_context:
             parts.append(f"Memory: {memory_context}")
         if web_context:

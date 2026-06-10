@@ -314,7 +314,7 @@ def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
 
     ctx = agent.working_memory.get_context()
     assert len(ctx) >= 2
-    assert ctx[-1]["role"] == "assistant"
+    assert ctx[-1]["role"] == "adam"
 
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")

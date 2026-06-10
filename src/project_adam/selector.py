@@ -32,13 +32,14 @@ _RESPONSES = {
 
 class ActionSelector:
     def __init__(self, language, episodic_memory, semantic_memory,
-                 metacognitive, world_model, persona=None):
+                 metacognitive, world_model, persona=None, td_core=None):
         self.language = language
         self.episodic = episodic_memory
         self.semantic = semantic_memory
         self.metacognitive = metacognitive
         self.world_model = world_model
         self.persona = persona
+        self.td_core = td_core
         self._last_meta_action = "proceed"
         self._fast_q = {}
         self._last_fast_intent = None
@@ -114,8 +115,19 @@ class ActionSelector:
         return None
 
     def _slow_path(self, user_input, user_profile=None,
-                   sfl_q=None, temperature=0.7, token_callback=None):
-        meta_action = self.metacognitive.act(0.5, None, sfl_q)
+                   sfl_q=None, temperature=0.7, token_callback=None,
+                   confidence=None, uncertainty=None):
+        if self.td_core is not None:
+            policy_probs = self.td_core.get_policy(
+                [0.5, 0.5, sfl_q if sfl_q else 0.5, 0.0, 0.5, 0.0, 0.0, 0.0]
+            )
+            policy_explore = float(policy_probs[0]) if len(policy_probs) > 0 else 0.2
+            temperature = max(0.3, min(0.9, temperature + policy_explore * 0.2))
+
+        meta_action = self.metacognitive.act(
+            confidence if confidence is not None else 0.5,
+            uncertainty, sfl_q,
+        )
         self._last_meta_action = meta_action
 
         traj_score = self._simulate_trajectories(user_input)
@@ -139,6 +151,8 @@ class ActionSelector:
             messages, meta_action=meta_action,
             temperature=temperature,
             user_profile=user_profile,
+            confidence=confidence,
+            uncertainty=uncertainty,
             token_callback=token_callback,
         )
         return reply, used_search, web_context, meta_action
@@ -162,4 +176,5 @@ class ActionSelector:
 
         return self._slow_path(user_input, user_profile=user_profile,
                                 sfl_q=sfl_q, temperature=temperature,
+                                confidence=confidence, uncertainty=uncertainty,
                                 token_callback=token_callback)
