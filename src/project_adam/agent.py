@@ -79,6 +79,15 @@ class CognitiveAgent:
             ht = HARDWARE_TIER
             self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype, hardware_tier=ht).to(DEVICE)
 
+        if HARDWARE_TIER in ("mid", "high"):
+            from .encoder import VisionEncoder, AudioEncoder
+            enc_dtype = model_dtype
+            self.vision_encoder = VisionEncoder(input_dim=2048, latent_dim=128, dtype=enc_dtype, hardware_tier=HARDWARE_TIER).to(DEVICE)
+            self.audio_encoder = AudioEncoder(input_dim=1024, latent_dim=64, dtype=enc_dtype, hardware_tier=HARDWARE_TIER).to(DEVICE)
+        else:
+            self.vision_encoder = None
+            self.audio_encoder = None
+
         self.world_model = WorldModel()
         self.web_search = WebSearch()
         self.working_memory = WorkingMemory(max_turns=64)
