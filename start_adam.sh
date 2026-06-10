@@ -28,16 +28,20 @@ echo -n "Waiting for server"
 for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT/v1/models" > /dev/null 2>&1; then
         echo ""
-        echo ""
         echo "=== Project Adam is ready ==="
-        echo "Server PID: $PID"
-        echo "API: http://localhost:$PORT"
+        echo "Server PID: $PID | API: http://localhost:$PORT"
         echo "Models: $(curl -s http://localhost:$PORT/v1/models | python3 -c "import sys,json; print(', '.join(m['id'] for m in json.load(sys.stdin)['data']))" 2>/dev/null || echo 'adam-cognet')"
         echo ""
-echo "To use in external:"
-echo "  Open external and select 'Adam (COGNET)' from the model picker (Ctrl+P)."
-echo "  (Provider configured in external.json — port $PORT)"
-echo ""
+        echo "Preloading model (first request loads it — may take ~15s)..."
+        curl -s -X POST "http://localhost:$PORT/v1/chat/completions" \
+          -H "Content-Type: application/json" \
+          -d '{"model":"adam-cognet","messages":[{"role":"user","content":"ping"}],"stream":false,"max_tokens":1}' \
+          -o /dev/null -w "Model loaded in %{time_total}s" 2>/dev/null &
+        echo ""
+        echo ""
+        echo "=== Ready ==="
+        echo "Open external → Ctrl+P → select 'Adam (COGNET)'."
+        echo "Note: First response takes ~30-60s (model cold start). Subsequent responses are faster."
         echo "Logs: tail -f /tmp/adam_api.log"
         exit 0
     fi

@@ -22,9 +22,9 @@ generation:
   top_p: 0.9
 
 backend:
-  mode: "api"                         # "local" or "api"
+  mode: "local"                       # "local" or "api"
   api:
     endpoint: "https://external.ai/zen/v1/chat/completions"
-    key: ""                           # external public endpoint, no key needed
+    key: ""
     model: "External"
-    timeout: 60
+    timeout: 15

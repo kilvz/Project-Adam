@@ -7,7 +7,7 @@ from ..config import get_memory_dir
 
 def _init_db():
     db_path = get_memory_dir() / "memory.db"
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("""CREATE TABLE IF NOT EXISTS kv (

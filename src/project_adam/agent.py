@@ -48,7 +48,7 @@ class CognitiveAgent:
                     self.model = AutoModelForCausalLM.from_pretrained(
                         model_id,
                         quantization_config=_4BIT_CONFIG,
-                        device_map="auto", torch_dtype=torch.float16,
+                        device_map=DEVICE, torch_dtype=torch.float16,
                     )
                     is_4bit = True
                 break
