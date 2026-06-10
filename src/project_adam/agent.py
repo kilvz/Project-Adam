@@ -125,7 +125,8 @@ class CognitiveAgent:
             emb = self.episodic_memory.encode(user_input)
             if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
                 with torch.no_grad():
-                    x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                    enc_dtype = next(self.sensory_encoder.parameters()).dtype
+                    x_t = torch.as_tensor(emb, dtype=enc_dtype, device=DEVICE).unsqueeze(0)
                     z, _ = self.sensory_encoder.forward(x_t)
                     enc_sparsity = float((torch.abs(z) < 0.01).float().mean())
         return [sentiment, engagement, interaction_norm, topic_count, reward, sfl_q, enc_sparsity]
@@ -188,7 +189,8 @@ class CognitiveAgent:
         if self.episodic_memory.embedder is not None:
             emb = self.episodic_memory.encode(user_input)
             if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
-                x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                enc_dtype = next(self.sensory_encoder.parameters()).dtype
+                x_t = torch.as_tensor(emb, dtype=enc_dtype, device=DEVICE).unsqueeze(0)
                 _, z = self.sensory_encoder.train_step(x_t, rpe)
                 if self.episodic_memory.episodes:
                     self.episodic_memory.episodes[-1]["latent_z"] = z[0].tolist()

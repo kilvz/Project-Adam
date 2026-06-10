@@ -1,7 +1,10 @@
 import json
+import time
 import logging
 import asyncio
 import queue
+import uuid
+from typing import Optional, List
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -14,6 +17,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Project Adam API", version="1.0.0")
 
 _agent = None
+
+MODEL_ID = "adam-cognet"
+
 
 def get_agent():
     global _agent
@@ -33,6 +39,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     user_id: str = ""
+
+
+# ── OpenAI-compatible endpoints ─────────────────────────────────────
+
+class Message(BaseModel):
+    role: str
+    content: str
+
+class ChatCompletionRequest(BaseModel):
+    model: str = MODEL_ID
+    messages: List[Message]
+    stream: bool = False
+    temperature: float = 0.7
+    max_tokens: int = 128
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[dict]
 
 
 @app.get("/health")
@@ -82,6 +109,83 @@ def chat_stream(req: ChatRequest):
                 yield f"data: {json.dumps({'error': str(tok)})}\n\n"
                 break
             yield f"data: {json.dumps({'token': tok})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ── OpenAI-compatible endpoints ─────────────────────────────────────
+
+@app.get("/v1/models")
+def list_models():
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": MODEL_ID,
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "project_adam",
+            }
+        ],
+    }
+
+
+@app.post("/v1/chat/completions")
+def chat_completions(req: ChatCompletionRequest):
+    agent = get_agent()
+    user_text = req.messages[-1].content if req.messages else ""
+
+    if req.stream:
+        return _chat_completions_stream(agent, user_text, req)
+
+    reply = agent.chat(user_text)
+    return ChatCompletionResponse(
+        id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        created=int(time.time()),
+        model=req.model,
+        choices=[{
+            "index": 0,
+            "message": {"role": "assistant", "content": reply},
+            "finish_reason": "stop",
+        }],
+    )
+
+
+def _chat_completions_stream(agent, user_text, req):
+    q = queue.Queue()
+
+    def token_callback(tok):
+        q.put(tok)
+
+    def generate():
+        try:
+            agent.chat(user_text, token_callback=token_callback)
+            q.put(None)
+        except Exception as e:
+            q.put(e)
+
+    import threading
+    thread = threading.Thread(target=generate, daemon=True)
+    thread.start()
+
+    chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
+
+    async def event_stream():
+        yield f"data: {json.dumps({'id': chat_id, 'object': 'chat.completion.chunk', 'created': created, 'model': req.model, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
+        while True:
+            try:
+                tok = await asyncio.get_event_loop().run_in_executor(None, q.get)
+            except Exception:
+                break
+            if tok is None:
+                yield f"data: {json.dumps({'id': chat_id, 'object': 'chat.completion.chunk', 'created': created, 'model': req.model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
+                yield "data: [DONE]\n\n"
+                break
+            if isinstance(tok, Exception):
+                yield f"data: {json.dumps({'error': {'message': str(tok)}})}\n\n"
+                break
+            yield f"data: {json.dumps({'id': chat_id, 'object': 'chat.completion.chunk', 'created': created, 'model': req.model, 'choices': [{'index': 0, 'delta': {'content': tok}, 'finish_reason': None}]})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
