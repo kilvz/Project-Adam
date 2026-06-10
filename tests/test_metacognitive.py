@@ -96,16 +96,16 @@ def test_stats_basic(meta):
     meta.act(confidence=0.8, uncertainty=0.2)
     meta.record_outcome(used_slow_path=True)
     stats = meta.stats()
-    assert "total" in stats
+    assert "total_actions" in stats
     assert "avg_confidence" in stats
     assert "slow_path_rate" in stats
     assert "last_action" in stats
-    assert stats["total"] == 1
+    assert stats["total_actions"] == 1
     assert stats["slow_path_rate"] == 1.0
 
 def test_stats_zero_division(meta):
     stats = meta.stats()
-    assert stats["total"] == 0
+    assert stats["total_actions"] == 0
     assert stats["slow_path_rate"] == 0.0
     assert stats["avg_confidence"] == 0.0
 
@@ -131,9 +131,8 @@ def test_estimate_confidence_no_nan(meta):
 def test_act_default_last_action(meta):
     assert meta.last_action == "proceed"
 
-def test_confidence_history_in_stats(meta):
+def test_confidence_history_tracked(meta):
     meta.should_search(0.5)
     meta.should_search(0.6)
     meta.act(confidence=0.5, uncertainty=0.3)
-    stats = meta.stats()
-    assert len(stats["confidence_history"]) == 2
+    assert len(meta.recent_confidence) == 2
