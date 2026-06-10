@@ -171,6 +171,9 @@ class LanguageInterface:
             sys_prompt = self.persona.build_system_prompt(user_profile)
             if sys_prompt:
                 parts.append(sys_prompt)
+            user_prompt = self.persona.build_user_prompt(user_profile)
+            if user_prompt:
+                parts.append(user_prompt)
         if confidence is not None:
             parts.append(f"Your confidence: {confidence:.1f}")
         if uncertainty is not None:

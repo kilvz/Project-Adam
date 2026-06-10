@@ -103,6 +103,14 @@ def run_cli(agent):
                 p = agent.user_profiles.get_or_create(u)
                 print(f"    {u}: {p.get('interaction_count', 0)} interactions, sentiment={p.get('avg_sentiment', 0):.2f}")
             continue
+        if user.startswith("/remove "):
+            name = user[8:].strip().capitalize()
+            if name in agent.user_profiles.profiles:
+                agent.user_profiles.remove(name)
+                print(f"  Removed user '{name}'.")
+            else:
+                print(f"  User '{name}' not found.")
+            continue
         if user == "/profile":
             p = agent.user_profiles.get_current()
             if p:

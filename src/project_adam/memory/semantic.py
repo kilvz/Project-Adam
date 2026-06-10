@@ -101,12 +101,14 @@ class SemanticMemory:
             if len(w) > 3:
                 slots[w] = slots.get(w, 0) + 1
 
-    def _assimilate(self, schema_id, fact, emb, prediction_error=None):
+    def _assimilate(self, schema_id, fact, emb, best_id=None, prediction_error=None):
         schema = self.schemas[schema_id]
         schema["prediction_error"] = prediction_error or self._compute_prediction_error(emb, schema)
         schema["facts"].append(fact)
         schema["observed_count"] += 1
         self._update_slots(schema, fact)
+        if best_id is not None and best_id != schema_id:
+            self.add_edge(schema_id, "assimilated_from", best_id)
         combined = " ".join(schema["facts"])
         schema["emb"] = self._encode(combined)
         return schema_id
@@ -169,7 +171,7 @@ class SemanticMemory:
             best_id, best_sim = self._find_best_schema(emb)
             if best_id and best_sim >= _SCHEMA_ASSIMILATION_THRESHOLD:
                 pred_err = 1.0 - best_sim
-                sid = self._assimilate(best_id, fact, emb, prediction_error=pred_err)
+                sid = self._assimilate(best_id, fact, emb, best_id=best_id, prediction_error=pred_err)
                 self._check_split(sid)
             else:
                 sid = self._accommodate(category, fact, emb)

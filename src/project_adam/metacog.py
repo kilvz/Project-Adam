@@ -143,6 +143,8 @@ class MetacognitiveController:
             "total": self.total,
             "avg_confidence": sum(self.confidence_history) / max(len(self.confidence_history), 1),
             "slow_path_rate": self.slow_path_used / max(self.total_interactions, 1),
+            "slow_path_abs": self.slow_path,
             "last_action": self.last_action,
+            "strategy_count": len(self.strategy_history),
             "confidence_history": list(self.recent_confidence),
         }

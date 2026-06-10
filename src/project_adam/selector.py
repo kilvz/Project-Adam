@@ -32,12 +32,14 @@ _RESPONSES = {
 
 class ActionSelector:
     def __init__(self, language, episodic_memory, semantic_memory,
-                 metacognitive, world_model, persona=None, td_core=None):
+                 metacognitive, world_model, spatial_memory, persona=None,
+                 td_core=None):
         self.language = language
         self.episodic = episodic_memory
         self.semantic = semantic_memory
         self.metacognitive = metacognitive
         self.world_model = world_model
+        self.spatial = spatial_memory
         self.persona = persona
         self.td_core = td_core
         self._last_meta_action = "proceed"
@@ -90,6 +92,10 @@ class ActionSelector:
             current = self.world_model.query(e_lower, "sentiment")
             if not current:
                 continue
+            sim_val = self.world_model.simulate(e_lower, "sentiment", 0.0)
+            if sim_val != 0.0:
+                scores.append(sim_val)
+                continue
             _, var, _ = current.get("sentiment", (0.0, 1.0, 0))
             pred = self.world_model.predict_transition(e_lower, "sentiment")
             if pred is not None:
@@ -118,11 +124,12 @@ class ActionSelector:
                    sfl_q=None, temperature=0.7, token_callback=None,
                    confidence=None, uncertainty=None):
         if self.td_core is not None:
-            policy_probs = self.td_core.get_policy(
-                [0.5, 0.5, sfl_q if sfl_q else 0.5, 0.0, 0.5, 0.0, 0.0, 0.0]
-            )
+            features = [0.5, 0.5, sfl_q if sfl_q else 0.5, 0.0, 0.5, 0.0, 0.0, 0.0]
+            policy_probs = self.td_core.get_policy(features)
             policy_explore = float(policy_probs[0]) if len(policy_probs) > 0 else 0.2
             temperature = max(0.3, min(0.9, temperature + policy_explore * 0.2))
+            td_value = self.td_core.predict(features)
+            temperature = max(0.3, min(0.9, temperature + td_value * 0.05))
 
         meta_action = self.metacognitive.act(
             confidence if confidence is not None else 0.5,
@@ -147,6 +154,15 @@ class ActionSelector:
             temperature = max(0.3, min(0.9, temperature + traj_score * 0.1))
 
         messages = [{"role": "user", "content": user_input}]
+        if self.spatial is not None:
+            entities_in = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', user_input)
+            spatial_rel_text = ""
+            for ent in entities_in[:3]:
+                rels = self.spatial.query(ent)
+                if rels:
+                    spatial_rel_text += f" {ent}: " + ", ".join(f"{r} {b}" for r, b in rels[:3])
+            if spatial_rel_text:
+                messages.insert(0, {"role": "system", "content": f"Spatial: {spatial_rel_text}"})
         reply, used_search, web_context = self.language.generate(
             messages, meta_action=meta_action,
             temperature=temperature,

@@ -1,5 +1,4 @@
-import numpy as np
-from collections import defaultdict
+
 
 
 class OfflineConsolidator:
@@ -16,39 +15,18 @@ class OfflineConsolidator:
     def _distill_cross_user_patterns(self):
         if self.user_profiles is None:
             return
-        all_profiles = self.user_profiles.profiles
-        all_keywords = defaultdict(set)
-        for name, profile in all_profiles.items():
-            topics = profile.get("topics", {})
-            for t in topics:
-                all_keywords[t].add(name)
-        for keyword, users in all_keywords.items():
-            if len(users) >= 2:
-                msg = f"[distilled] '{keyword}' mentioned by {', '.join(users)}"
-                self.episodic.add(msg, reward=0.6)
+        patterns = self.semantic.cross_user_distill(self.user_profiles.profiles)
+        for keyword, users in patterns:
+            msg = f"[distilled] '{keyword}' mentioned by {', '.join(users)}"
+            self.episodic.add(msg, reward=0.6)
 
     def _cluster_patterns(self, episodes):
-        if self.embedder is None:
-            return
         texts = [e.get("text", "") for e in episodes[-20:]
                  if len(e.get("text", "")) > 10]
         if len(texts) < 3:
             return
         try:
-            embs = self.embedder.encode(texts, convert_to_numpy=True)
-            sims = embs @ embs.T
-            clusters = []
-            used = set()
-            for i in range(len(texts)):
-                if i in used:
-                    continue
-                group = [texts[i]]
-                used.add(i)
-                for j in range(i + 1, len(texts)):
-                    if j not in used and sims[i, j] > 0.7:
-                        group.append(texts[j])
-                        used.add(j)
-                clusters.append(group[0])
+            clusters = self.semantic.phrase_cluster(texts)
             for phrase in clusters[:5]:
                 self.semantic.add("pattern", phrase[:200])
         except Exception:
@@ -108,7 +86,11 @@ class OfflineConsolidator:
         self._cluster_patterns(episodes)
         self._td_replay(episodes)
         self._update_world_model(episodes)
+        if self.world_model is not None:
+            self.world_model.consolidate()
         self._update_procedural(episodes)
+        if self.td_core is not None:
+            self.td_core.reset()
         self.episodic.prune(threshold=0.3)
 
         if len(episodes) >= 5:

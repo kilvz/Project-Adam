@@ -113,8 +113,8 @@ class CognitiveAgent:
         self.action_selector = ActionSelector(
             self.language,
             self.episodic_memory, self.semantic_memory,
-            self.metacognitive, self.world_model, self.persona,
-            td_core=self.td_core,
+            self.metacognitive, self.world_model, self.spatial_memory,
+            self.persona, td_core=self.td_core,
         )
         self.consolidator = OfflineConsolidator(
             self.episodic_memory, self.semantic_memory,
@@ -152,6 +152,7 @@ class CognitiveAgent:
 
     def chat(self, user_input, token_callback=None):
         self.working_memory.add("user", user_input)
+        self.working_memory.set_goal("understand the user and respond thoughtfully")
 
         known_names = self.user_profiles.list_users()
         detected = self.language.detect_user(user_input, known_names)
@@ -222,10 +223,15 @@ class CognitiveAgent:
 
         topics = self.semantic_memory.extract_topics(user_input, self.episodic_memory.embedder)
         self._update_user_profile(user_input, reward, topics)
+        kw_results = self.episodic_memory.search_by_keyword(user_input)
+        if kw_results:
+            self.current_profile.setdefault("keyword_matches", []).append(len(kw_results))
         self._mint_custom_rules()
 
         self.procedural_memory.record(user_input, self.current_profile.get("name", "") if self.current_profile else "", reward)
         self.procedural_memory.update_from_rpe(rpe)
+        if reward < 0:
+            self.procedural_memory.record_failure(user_input)
 
         self.metacognitive.record_confidence(abs(reward))
         confidence, _ = self.metacognitive.estimate_confidence(None)
@@ -240,7 +246,7 @@ class CognitiveAgent:
 
         temperature = self.sfl_module.compute_temperature()
         reply, used_search, web_context, meta_action = self.action_selector.select(
-            user_input, self.working_memory.get_context(),
+            user_input, self.working_memory.get_gated_context(),
             user_profile=self.current_profile,
             sfl_q=q_value, temperature=temperature,
             token_callback=token_callback,
@@ -260,6 +266,9 @@ class CognitiveAgent:
         self._update_rule_weights(reward)
 
         self.metacognitive.record_outcome(used_search, reward=reward)
+        if self.metacognitive.recent_rewards:
+            avg_conf = sum(self.metacognitive.recent_rewards) / len(self.metacognitive.recent_rewards)
+            self.metacognitive.should_search(abs(avg_conf))
         self.metacognitive.learn(reward)
 
         if self.current_profile is not None:
