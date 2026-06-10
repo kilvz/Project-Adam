@@ -54,17 +54,17 @@ class SensoryEncoder(nn.Module):
         sparsity_loss = self.sparsity_weight * torch.abs(z).mean()
         return z, recon_loss + self.beta * kl_loss + sparsity_loss
 
-    def compute_loss(self, x, rpe=1.0):
+    def compute_loss(self, x, rpe=0.0):
         _, vae_loss_val = self.forward(x)
-        task_loss = max(0.0, -rpe)
+        task_loss = max(0.0, -rpe * 0.1)
         return vae_loss_val + task_loss
 
-    def train_step(self, x, rpe=1.0):
+    def train_step(self, x, rpe=0.0):
         loss = self.compute_loss(x, rpe)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         return loss.item()
 
-    def vae_loss(self, x, rpe_weight=1.0):
-        return self.train_step(x, rpe_weight)
+    def vae_loss(self, x, rpe_scale=1.0):
+        return self.train_step(x, rpe_scale)

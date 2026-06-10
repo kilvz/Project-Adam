@@ -77,10 +77,32 @@ class ActionSelector:
             self._last_fast_intent = None
             self._last_fast_idx = None
 
+    def _simulate_trajectories(self, user_input):
+        if self.world_model is None:
+            return None
+        entities = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', user_input)
+        if not entities:
+            return None
+        scores = []
+        for e in entities[:5]:
+            e_lower = e.lower()
+            current = self.world_model.query(e_lower, "sentiment")
+            if not current:
+                continue
+            _, var, _ = current.get("sentiment", (0.0, 1.0, 0))
+            pred = self.world_model.predict_transition(e_lower, "sentiment")
+            if pred is not None:
+                mean_delta, delta_uncertainty = pred
+                trajectory_score = mean_delta - delta_uncertainty * 0.5
+                scores.append(trajectory_score)
+        if not scores:
+            return None
+        avg_score = sum(scores) / len(scores)
+        return avg_score
+
     def _consult_world_model(self, user_input):
         if self.world_model is None:
             return None
-        import re
         entities = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', user_input)
         high_uncertainty = []
         for e in entities:
@@ -96,10 +118,21 @@ class ActionSelector:
         meta_action = self.metacognitive.act(0.5, None, sfl_q)
         self._last_meta_action = meta_action
 
+        traj_score = self._simulate_trajectories(user_input)
+        if traj_score is not None and traj_score < -0.1 and meta_action == "proceed":
+            meta_action = "STOP_AND_THINK"
+            self._last_meta_action = "STOP_AND_THINK"
+        elif traj_score is not None and traj_score < 0 and meta_action == "proceed":
+            meta_action = "EXPLORE"
+            self._last_meta_action = "EXPLORE"
+
         wm_state = self._consult_world_model(user_input)
         if wm_state and meta_action == "proceed":
             meta_action = "EXPLORE"
             self._last_meta_action = "EXPLORE"
+
+        if traj_score is not None:
+            temperature = max(0.3, min(0.9, temperature + traj_score * 0.1))
 
         messages = [{"role": "user", "content": user_input}]
         reply, used_search, web_context = self.language.generate(
