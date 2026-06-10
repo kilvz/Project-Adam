@@ -15,13 +15,17 @@ from .encoder import SensoryEncoder
 from .memory.working import WorkingMemory
 from .memory.episodic import EpisodicMemory
 from .memory.semantic import SemanticMemory
-from .memory.neural import NeuralMemory
+from .memory.procedural import ProceduralMemory
+from .memory.spatial import SpatialMemory
+from .language import LanguageInterface
 from .sfl import SFLModule
 from .metacog import MetacognitiveController
 from .search import WebSearch
 from .consolidator import OfflineConsolidator
 from .selector import ActionSelector
-from .utils import detect_user, extract_facts, compute_implicit_reward, extract_topics
+from .rl_core import TDCore
+from .world_model import WorldModel
+from .rl_core import TDCore as _TDCore
 
 
 class CognitiveAgent:
@@ -59,14 +63,19 @@ class CognitiveAgent:
         model_dtype = self.model.dtype
         hidden_dim = self.model.config.hidden_size
 
-        self.sensory_encoder = SensoryEncoder(input_dim=hidden_dim, dtype=model_dtype).to(DEVICE)
-        self.working_memory = WorkingMemory(max_turns=8)
+        self.world_model = WorldModel()
+        self.web_search = WebSearch()
+        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model)
+        enc_input_dim = 384
+        self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
+        self.working_memory = WorkingMemory(max_turns=64)
         self.episodic_memory = EpisodicMemory()
         self.semantic_memory = SemanticMemory()
-        self.neural_memory = NeuralMemory(input_dim=hidden_dim, dtype=model_dtype).to(DEVICE)
+        self.procedural_memory = ProceduralMemory()
+        self.spatial_memory = SpatialMemory()
         self.persona = Persona()
+        self.language.persona = self.persona
         self.metacognitive = MetacognitiveController()
-        self.web_search = WebSearch()
 
         self._lora_config = LoraConfig(
             r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
@@ -80,33 +89,50 @@ class CognitiveAgent:
         lora_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info("LoRA adapters: %s trainable params (%s)", f"{lora_trainable:,}", self._current_adapter)
 
+        if self.episodic_memory.embedder:
+            self.working_memory.set_embedder(self.episodic_memory.embedder)
+        self.working_memory.set_episodic_memory(self.episodic_memory)
+
         self.action_selector = ActionSelector(
-            self.tokenizer, self.model,
+            self.language,
             self.episodic_memory, self.semantic_memory,
-            self.web_search, self.metacognitive, self.persona,
+            self.metacognitive, self.world_model, self.persona,
         )
+        self.sfl_module = SFLModule(n_features=7).to(DEVICE)
+        self.td_core = TDCore(n_features=7)
         self.consolidator = OfflineConsolidator(
             self.episodic_memory, self.semantic_memory,
-            self.neural_memory, self.tokenizer, self.model,
+            world_model=self.world_model,
             embedder=self.episodic_memory.embedder,
+            td_core=self.td_core,
+            procedural_memory=self.procedural_memory,
         )
         self.user_profiles = UserProfileManager()
         self.consolidator.user_profiles = self.user_profiles
-        self.sfl_module = SFLModule(n_features=4).to(DEVICE)
         self.current_profile = None
-        self._load_state()
 
-    def _load_state(self):
-        nm_path = get_memory_dir() / "neural_memory.pt"
-        if nm_path.exists():
-            self.neural_memory.load_state_dict(torch.load(nm_path, map_location=DEVICE, weights_only=True))
-            logger.info("neural memory loaded")
+    def _build_td_features(self, user_input, reward):
+        profile = self.current_profile or {}
+        sentiment = profile.get("avg_sentiment", 0.0)
+        engagement = min(1.0, len(user_input) / 100.0)
+        interaction_norm = min(1.0, profile.get("interaction_count", 0) / 100.0)
+        topic_count = min(1.0, len(profile.get("topics", {})) / 20.0)
+        sfl_q = self.sfl_module.q_history[-1] if self.sfl_module.q_history else 0.0
+        enc_sparsity = 0.0
+        if hasattr(self, 'sensory_encoder') and self.episodic_memory.embedder is not None:
+            emb = self.episodic_memory.encode(user_input)
+            if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
+                with torch.no_grad():
+                    x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                    z, _ = self.sensory_encoder.forward(x_t)
+                    enc_sparsity = float((torch.abs(z) < 0.01).float().mean())
+        return [sentiment, engagement, interaction_norm, topic_count, reward, sfl_q, enc_sparsity]
 
     def chat(self, user_input, token_callback=None):
         self.working_memory.add("user", user_input)
 
         known_names = self.user_profiles.list_users()
-        detected = detect_user(user_input, known_names)
+        detected = self.language.detect_user(user_input, known_names)
         if detected:
             is_new = detected not in known_names
             self.current_profile = self.user_profiles.set_current(detected)
@@ -120,10 +146,17 @@ class CognitiveAgent:
             self.current_profile = self.user_profiles.get_or_create("Stranger")
         self._current_user = self.current_profile.get("name", "")
 
-        facts = extract_facts(user_input)
+        facts = self.semantic_memory.extract_facts(user_input)
         for cat, fact in facts:
             self.semantic_memory.add(cat, fact)
             self.episodic_memory.add(fact, reward=0.7)
+
+        self.world_model.observe_from_text(user_input,
+                                           self.current_profile.get("avg_sentiment", 0.0) if self.current_profile else 0.0)
+
+        spatial_rels = self.spatial_memory.extract_from_text(user_input)
+        for rel in spatial_rels:
+            self.episodic_memory.add(f"[spatial] {rel} mentioned", reward=0.3)
 
         is_question = any(user_input.lower().startswith(w)
                           for w in ["what", "why", "how", "when", "where",
@@ -143,85 +176,105 @@ class CognitiveAgent:
                         self.semantic_memory.add("web_knowledge", result[:300])
                     self.episodic_memory.add(f"[auto-search] {result[:200]}", reward=0.4)
 
-        self.episodic_memory.add(user_input)
+        self.episodic_memory.add(user_input, context=str(self.working_memory.get_context(4)))
 
-        if facts:
-            self._inline_learn(facts)
-        elif len(user_input) > 10:
-            self._inline_learn([("input", user_input)])
+        reward = _TDCore.compute_reward(user_input, self.current_profile, self.episodic_memory.embedder)
 
-        reward = compute_implicit_reward(user_input, self.current_profile, self.episodic_memory.embedder)
+        td_features = self._build_td_features(user_input, reward)
+        rpe = self.td_core.update(reward, td_features)
 
-        features = self._build_sfl_features(user_input, reward)
-        self.sfl_module.update(features, reward)
-        q_value = self.sfl_module(torch.as_tensor(features, dtype=torch.float32, device=DEVICE)).item()
+        if self.episodic_memory.embedder is not None:
+            emb = self.episodic_memory.encode(user_input)
+            if emb.shape[-1] == self.sensory_encoder.encoder[0].in_features:
+                x_t = torch.as_tensor(emb, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                self.sensory_encoder.train_step(x_t, rpe)
 
-        topics = extract_topics(user_input, self.episodic_memory.embedder)
+        features = self._build_sfl_features(user_input)
+        f_t = torch.as_tensor(features, dtype=torch.float32, device=DEVICE)
+        self.sfl_module.update(f_t, rpe)
+        q_value = self.sfl_module(f_t).item()
+
+        topics = self.semantic_memory.extract_topics(user_input, self.episodic_memory.embedder)
         self._update_user_profile(user_input, reward, topics)
         self._mint_custom_rules()
 
+        self.procedural_memory.record(user_input, self.current_profile.get("name", "") if self.current_profile else "", reward)
+        self.procedural_memory.update_from_rpe(rpe)
+
+        self.metacognitive.record_confidence(abs(reward))
+        confidence, _ = self.metacognitive.estimate_confidence(None)
+        talk_reason = self.metacognitive.should_self_talk(confidence, q_value)
+        self_talk = self.language.generate_self_talk(talk_reason, user_input)
+        if self_talk:
+            self.working_memory.add("assistant", f"[self-talk] {self_talk}")
+
+        procedural_hint = self.procedural_memory.retrieve(user_input)
+        if procedural_hint and self.current_profile:
+            self.current_profile.setdefault("procedural_hints", []).append(procedural_hint[:100])
+
+        temperature = self.sfl_module.compute_temperature()
         reply, used_search, web_context, meta_action = self.action_selector.select(
             user_input, self.working_memory.get_context(),
             user_profile=self.current_profile,
-            sfl_q=q_value,
+            sfl_q=q_value, temperature=temperature,
             token_callback=token_callback,
         )
 
-        if meta_action == "replay":
-            self._inline_learn([("replay", user_input)])
-            self.consolidator.merge_episodes()
+        if meta_action == "REPLAY":
+            self.consolidator.merge_episodes(rpe=rpe)
+        elif meta_action == "proceed" and not used_search:
+            self.action_selector.record_fast_outcome(rpe)
 
-        reply = self._apply_behavioral_rules(user_input, reply, reward)
+        reply = self.language.apply_behavioral_rules(
+            user_input, reply, reward, self.persona, self.current_profile
+        )
+        self.episodic_memory.update_last_action(reply)
         self.working_memory.add("assistant", reply)
         self._update_rule_weights(reward)
+
+        self.metacognitive.record_outcome(used_search, reward=reward)
+        self.metacognitive.learn(reward)
 
         if self.current_profile is not None:
             self.current_profile["last_q"] = round(q_value, 3)
             self.current_profile.setdefault("q_history", []).append(round(q_value, 3))
             self.current_profile.setdefault("reward_history", []).append(round(reward, 3))
+            self.current_profile.setdefault("rpe_history", []).append(round(rpe, 3))
             if len(self.current_profile["q_history"]) > 100:
                 self.current_profile["q_history"] = self.current_profile["q_history"][-100:]
                 self.current_profile["reward_history"] = self.current_profile["reward_history"][-100:]
+                self.current_profile["rpe_history"] = self.current_profile["rpe_history"][-100:]
 
         if self.current_profile is not None:
             count = self.current_profile.get("interaction_count", 0)
             if count > 0 and count % 10 == 0:
-                self._lora_train_step()
+                self._lora_train_step(rpe)
 
         return reply
 
-    def _build_sfl_features(self, user_input, reward):
+    def _build_sfl_features(self, user_input):
         profile = self.current_profile or {}
         sentiment = profile.get("avg_sentiment", 0.0)
         engagement = min(1.0, len(user_input) / 100.0)
         interaction_norm = min(1.0, profile.get("interaction_count", 0) / 100.0)
         topic_novelty = 0.0
-        topics = extract_topics(user_input, self.episodic_memory.embedder if hasattr(self, 'episodic_memory') else None)
+        topics = self.semantic_memory.extract_topics(user_input, self.episodic_memory.embedder if hasattr(self, 'episodic_memory') else None)
         known = profile.get("topics", {})
         if topics:
             novel = sum(1 for t in topics if t not in known)
             topic_novelty = min(1.0, novel / max(len(topics), 1))
-        return [sentiment, engagement, interaction_norm, topic_novelty]
-
-    def _inline_learn(self, facts):
-        try:
-            fact_text = " ".join([f for _, f in facts])
-            if len(fact_text) < 3:
-                return
-            inputs = self.tokenizer(fact_text, return_tensors="pt").to(DEVICE)
-            with torch.no_grad():
-                emb = self.model.get_input_embeddings()(inputs["input_ids"]).to(self.neural_memory.dtype)
-            self.neural_memory.learn(emb)
-            flat = emb.view(-1, emb.shape[-1])
-            self.sensory_encoder.vae_loss(flat[:min(64, flat.shape[0])])
-        except Exception as e:
-            logger.warning("Inline learn failed: %s", e)
+        rh = profile.get("reward_history", [])
+        majority_opinion = sum(rh[-10:]) / max(len(rh[-10:]), 1) if rh else 0.0
+        expert_endorsement = engagement * (0.5 + 0.5 * abs(sentiment))
+        popularity = min(1.0, profile.get("interaction_count", 0) / 50.0)
+        return [sentiment, engagement, interaction_norm, topic_novelty,
+                majority_opinion, expert_endorsement, popularity]
 
     def _update_user_profile(self, user_input, reward, topics):
         if self.current_profile is None:
             return
         name = self.current_profile.get("name", "Stranger")
-        self.user_profiles.update_after_turn(name, user_input, "", reward, topics)
+        self.user_profiles.update_after_turn(name, user_input, reward, topics)
 
     def _update_rule_weights(self, reward):
         if self.current_profile is None or not self.persona.behavior_rules:
@@ -250,35 +303,6 @@ class CognitiveAgent:
                         profile.setdefault("custom_rules", []).append((cond, action))
                         logger.info("minted new rule: If %s, then %s...", cond, action[:50])
 
-    def _apply_behavioral_rules(self, user_input, reply, reward):
-        lower = user_input.lower()
-        lower_reply = reply.lower()
-        if not self.persona:
-            return reply
-        triggered_rule = None
-        for i, (cond, action) in enumerate(self.persona.behavior_rules):
-            cond_lower = cond.lower()
-            if "conversation is ending" in cond_lower or "goodbye" in cond_lower:
-                if any(w in lower for w in ["bye", "goodbye", "exit", "quit", "see you"]):
-                    if "one more thing" not in lower_reply:
-                        reply += "\n\nOne more thing — " + self.persona.get_closing()
-                        triggered_rule = i
-            elif "praise" in cond_lower or "praised" in cond_lower:
-                if any(w in lower_reply for w in ["good", "great", "amazing", "wonderful"]):
-                    if "thank" in lower and "suspicion" not in lower_reply:
-                        reply = reply.rstrip(".!") + ", though I'm not sure I deserve it."
-                        triggered_rule = i
-
-        if triggered_rule is not None and self.current_profile is not None:
-            i = triggered_rule
-            w = self.current_profile["rule_weights"].get(i, 1.0)
-            if reward > 0:
-                w *= 1.05
-            else:
-                w *= 0.95
-            self.current_profile["rule_weights"][i] = max(0.1, min(3.0, w))
-        return reply
-
     def _lora_format_examples(self, episodes, max_examples=8):
         examples = []
         for ep in episodes[-max_examples:]:
@@ -289,7 +313,7 @@ class CognitiveAgent:
             examples.append(text)
         return examples
 
-    def _lora_train_step(self):
+    def _lora_train_step(self, rpe=1.0):
         episodes = self.episodic_memory.episodes
         if len(episodes) < 5:
             return
@@ -305,6 +329,7 @@ class CognitiveAgent:
             [p for p in self.model.parameters() if p.requires_grad], lr=1e-4
         )
         total_loss = 0.0
+        rpe_scale = max(0.5, min(2.0, abs(rpe)))
         for i, text in enumerate(texts):
             enc = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=64).to(DEVICE)
             labels = enc["input_ids"].clone()
@@ -315,7 +340,7 @@ class CognitiveAgent:
             out = self.model(**enc, labels=labels, use_cache=False)
             loss = out.loss
             if not torch.isnan(loss):
-                weight = max(0.1, min(2.0, candidates[i].get("reward", 0) + 1.0))
+                weight = max(0.1, min(2.0, candidates[i].get("reward", 0) + 1.0)) * rpe_scale
                 (loss * weight).backward()
                 optim.step()
                 optim.zero_grad()

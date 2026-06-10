@@ -1,9 +1,13 @@
 import json
+import logging
 import threading
 from pathlib import Path
 
+from .config import get_memory_dir
 
-CACHE_PATH = Path("agent_memory/search_cache.json")
+logger = logging.getLogger(__name__)
+
+CACHE_PATH = get_memory_dir() / "search_cache.json"
 
 
 class WebSearch:
@@ -18,12 +22,12 @@ class WebSearch:
         try:
             from ddgs import DDGS
             self.ddgs = DDGS()
-        except Exception:
+        except ImportError:
             try:
                 from duckduckgo_search import DDGS
                 self.ddgs = DDGS()
-            except Exception:
-                pass
+            except ImportError:
+                logger.warning("No DDGS available — web search disabled")
 
     def _load_cache(self):
         try:
@@ -68,20 +72,15 @@ class WebSearch:
     def _search_wikipedia(self, query, max_results=3):
         try:
             import requests as req
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             headers = {"User-Agent": "ProjectAdam/1.0 (https://github.com/kilvz/Project-Adam)"}
             params = {
                 "action": "query", "list": "search",
                 "srsearch": query, "format": "json", "srlimit": max_results,
             }
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                resp = req.get(
-                    "https://en.wikipedia.org/w/api.php",
-                    params=params, headers=headers, timeout=10, verify=False,
-                )
+            resp = req.get(
+                "https://en.wikipedia.org/w/api.php",
+                params=params, headers=headers, timeout=10,
+            )
             data = resp.json()
             results = data.get("query", {}).get("search", [])
             if results:

@@ -3,7 +3,6 @@ from ..config import get_memory_dir
 
 
 def run_cli(agent):
-    agent.consolidator.start(interval=180)
     greeting = agent.persona.get_opening() if agent.persona else ""
     print("\n── Adam (COGNET) ──")
     if greeting:
@@ -21,7 +20,6 @@ def run_cli(agent):
             agent.episodic_memory.save()
             agent.semantic_memory.save()
             agent.user_profiles.save()
-            torch.save(agent.neural_memory.state_dict(), get_memory_dir() / "neural_memory.pt")
             agent._save_adapter()
             closing = agent.persona.get_closing() if agent.persona else "Goodbye."
             print(f"Adam: One more thing — {closing}")
@@ -96,7 +94,6 @@ def run_cli(agent):
             agent.episodic_memory.save()
             agent.semantic_memory.save()
             agent.user_profiles.save()
-            torch.save(agent.neural_memory.state_dict(), get_memory_dir() / "neural_memory.pt")
             print("  [saved all memory systems]")
             continue
         if user == "/users":

@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from project_adam import (
-    EpisodicMemory, SemanticMemory, NeuralMemory, WorkingMemory,
+    WorkingMemory, EpisodicMemory, SemanticMemory, SQLiteStore,
 )
 
 def test_working_memory_basic():
@@ -110,31 +110,35 @@ def test_episodic_search_no_embedder(tmp_path):
     mem.add("test", reward=0.0)
     results = mem.search("test")
     assert results == []
-
 @patch("sentence_transformers.SentenceTransformer")
 def test_semantic_memory_save_load(mock_st, tmp_path):
     mock_st.return_value = MagicMock()
     mem = SemanticMemory()
-    mem.path = tmp_path / "semantic.pkl"
     mem.embedder = None
     mem.schemas = {}
+    mem._next_id = 0
 
     mem.add("likes", "I like pizza")
-    assert "likes" in mem.schemas
-    assert "I like pizza" in mem.schemas["likes"]["facts"]
+    # schemas are now keyed by numeric ID; find by category
+    schema = next(s for s in mem.schemas.values() if s["category"] == "likes")
+    assert "I like pizza" in schema["facts"]
 
-    # E23: persistence via SQLite; load is automatic in __init__
+    # persistence via SQLite; load is automatic in __init__
     mem2 = SemanticMemory()
-    assert "likes" in mem2.schemas
+    schema2 = next((s for s in mem2.schemas.values() if s["category"] == "likes"), None)
+    assert schema2 is not None
+    assert "I like pizza" in schema2.get("facts", [])
+
 
 def test_semantic_memory_no_embedder(tmp_path):
     mem = SemanticMemory()
-    mem.path = tmp_path / "semantic.pkl"
     mem.embedder = None
     mem.schemas = {}
+    mem._next_id = 0
 
     mem.add("name", "Kilv")
-    assert mem.schemas["name"]["emb"] is None
+    schema = next(s for s in mem.schemas.values() if s["category"] == "name")
+    assert schema["emb"] is None
 
 @patch("sentence_transformers.SentenceTransformer")
 def test_semantic_retrieve(mock_st):
@@ -159,39 +163,7 @@ def test_semantic_retrieve_empty(tmp_path):
     results = mem.retrieve("anything")
     assert results == []
 
-def test_neural_memory_forward():
-    nm = NeuralMemory(input_dim=32, mem_dim=16, mem_slots=4, dtype=torch.float32)
-    x = torch.randn(2, 5, 32)
-    out = nm.forward(x)
-    assert out.shape == (2, 5, 16)
 
-def test_neural_memory_learn():
-    nm = NeuralMemory(input_dim=32, mem_dim=16, mem_slots=4, dtype=torch.float32)
-    x = torch.randn(2, 5, 32)
-    loss = nm.learn(x, lr=1e-3, steps=2)
-    assert isinstance(loss, float)
-    assert loss > 0
-
-def test_neural_memory_learn_reduces_loss():
-    nm = NeuralMemory(input_dim=8, mem_dim=4, mem_slots=2, dtype=torch.float32)
-    x = torch.randn(1, 3, 8)
-    losses = []
-    for _ in range(5):
-        loss = nm.learn(x, lr=1e-2, steps=1)
-        losses.append(loss)
-    assert losses[-1] <= losses[0] + 1e-6
-
-def test_neural_memory_different_dtype():
-    nm = NeuralMemory(input_dim=16, mem_dim=8, mem_slots=4, dtype=torch.float64)
-    x = torch.randn(1, 3, 16, dtype=torch.float64)
-    out = nm.forward(x)
-    assert out.dtype == torch.float64
-
-def test_neural_memory_no_grad_learn():
-    nm = NeuralMemory(input_dim=16, mem_dim=8, mem_slots=4, dtype=torch.float32)
-    x = torch.randn(1, 3, 16)
-    loss = nm.learn(x, steps=1)
-    assert loss > 0
 
 def test_working_memory_types():
     wm = WorkingMemory(max_turns=4)

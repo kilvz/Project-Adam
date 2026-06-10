@@ -8,10 +8,10 @@ def encoder():
     return SensoryEncoder(input_dim=32, latent_dim=8, dtype=torch.float32)
 
 def test_encoder_init(encoder):
-    assert encoder.encoder.in_features == 32
-    assert encoder.encoder.out_features == 16
-    assert encoder.decoder.in_features == 8
-    assert encoder.decoder.out_features == 32
+    assert encoder.encoder[0].in_features == 32
+    assert encoder.encoder[0].out_features == 256
+    assert encoder.decoder[0].in_features == 8
+    assert encoder.decoder[0].out_features == 256
 
 def test_encoder_forward_shape(encoder):
     x = torch.randn(4, 32)
@@ -86,11 +86,11 @@ def test_encoder_mu_logvar_separation():
     assert logvar.shape == (1, 4)
 
 def test_encoder_optimizer_steps(encoder):
-    old_w = encoder.encoder.weight.clone()
+    old_w = encoder.encoder[0].weight.clone()
     x = torch.randn(4, 32)
     for _ in range(3):
         encoder.vae_loss(x)
-    new_w = encoder.encoder.weight
+    new_w = encoder.encoder[0].weight
     assert not torch.allclose(old_w, new_w)
 
 def test_encoder_zero_input(encoder):

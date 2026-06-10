@@ -48,30 +48,23 @@ def test_list_users(manager):
 
 def test_update_after_turn(manager):
     profile = manager.get_or_create("Eve")
-    manager.update_after_turn("Eve", "I love this", "", 0.8, ["AI", "tech"])
+    manager.update_after_turn("Eve", "I love this", 0.8, ["AI", "tech"])
     assert profile["interaction_count"] == 1
-    assert profile["total_interactions"] == 1
     assert profile["avg_sentiment"] == 0.8
     assert profile["topics"]["AI"] == 1
     assert profile["topics"]["tech"] == 1
 
 def test_update_after_turn_avg_sentiment(manager):
-    manager.update_after_turn("Frank", "good", "", 0.5, [])
-    manager.update_after_turn("Frank", "bad", "", -0.3, [])
+    manager.update_after_turn("Frank", "good", 0.5, [])
+    manager.update_after_turn("Frank", "bad", -0.3, [])
     profile = manager.profiles["Frank"]
     assert abs(profile["avg_sentiment"] - 0.1) < 1e-6
 
 def test_sentiment_history_bounded(manager):
     profile = manager.get_or_create("Grace")
     for i in range(25):
-        manager.update_after_turn("Grace", "msg", "", 0.5, [])
+        manager.update_after_turn("Grace", "msg", 0.5, [])
     assert len(profile["sentiment_history"]) <= 20
-
-def test_adopted_phrases(manager):
-    manager.update_after_turn("Helen", "hello how are you doing today", "", 0.0, [])
-    profile = manager.profiles["Helen"]
-    assert len(profile["adopted_phrases"]) > 0
-    assert profile["adopted_phrases"]["hello how are"]["count"] >= 1
 
 def test_remove(manager):
     manager.get_or_create("Isaac")
@@ -96,18 +89,12 @@ def test_save_load(tmp_path):
     assert "Bob" in m2.profiles
 
 def test_update_topics_accumulates(manager):
-    manager.update_after_turn("Jack", "I love AI", "", 0.3, ["AI"])
-    manager.update_after_turn("Jack", "AI is great", "", 0.5, ["AI"])
+    manager.update_after_turn("Jack", "I love AI", 0.3, ["AI"])
+    manager.update_after_turn("Jack", "AI is great", 0.5, ["AI"])
     assert manager.profiles["Jack"]["topics"]["AI"] == 2
 
 def test_last_seen_updated(manager):
     t1 = time.time()
-    manager.update_after_turn("Kate", "hi", "", 0.0, [])
+    manager.update_after_turn("Kate", "hi", 0.0, [])
     t2 = manager.profiles["Kate"]["last_seen"]
     assert t2 >= t1
-
-def test_phrase_preferences_initialized(manager):
-    profile = manager.get_or_create("Leo")
-    assert "phrase_preferences" in profile
-    assert "openings" in profile["phrase_preferences"]
-    assert "closings" in profile["phrase_preferences"]
