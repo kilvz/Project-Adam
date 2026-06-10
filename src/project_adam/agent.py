@@ -2,12 +2,18 @@ import time
 import torch
 import json
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import LoraConfig, get_peft_model
+try:
+    from peft import LoraConfig, get_peft_model
+    _HAS_PEFT = True
+except ImportError:
+    _HAS_PEFT = False
+    LoraConfig = None
+    get_peft_model = None
 
 import logging
 from .config import (BASE_MODEL, MODEL_3B, MODEL_1_5B, MODEL_0_5B,
-                     MODEL_CHAIN, _4BIT_CONFIG, DEVICE, HARDWARE_TIER,
-                     get_memory_dir)
+                     MODEL_CHAIN, DEVICE, HARDWARE_TIER,
+                     get_memory_dir, get_4bit_config)
 
 logger = logging.getLogger(__name__)
 from .persona import Persona
@@ -50,7 +56,7 @@ class CognitiveAgent:
                 else:
                     self.model = AutoModelForCausalLM.from_pretrained(
                         model_id,
-                        quantization_config=_4BIT_CONFIG,
+                        quantization_config=get_4bit_config(),
                         device_map=DEVICE, torch_dtype=torch.float16,
                     )
                     is_4bit = True
@@ -103,7 +109,7 @@ class CognitiveAgent:
         self._current_adapter = "base"
         self._adapter_dir = get_memory_dir() / "adapters"
         self._adapter_dir.mkdir(exist_ok=True)
-        if self.model is not None:
+        if self.model is not None and _HAS_PEFT:
             self._lora_config = LoraConfig(
                 r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
                 lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",

@@ -2,8 +2,6 @@ import os
 import logging
 import torch
 from pathlib import Path
-from transformers import BitsAndBytesConfig
-
 # ── defaults ──────────────────────────────────────────────────────────
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -13,12 +11,22 @@ MODEL_0_5B = "Qwen/Qwen2.5-0.5B-Instruct"
 BASE_MODEL = MODEL_3B
 MODEL_CHAIN = [MODEL_3B, MODEL_1_5B, MODEL_0_5B]
 
-_4BIT_CONFIG = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.float16,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=False,
-)
+_4BIT_CONFIG = None
+
+def _get_4bit_config():
+    global _4BIT_CONFIG
+    if _4BIT_CONFIG is None:
+        from transformers import BitsAndBytesConfig
+        _4BIT_CONFIG = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=False,
+        )
+    return _4BIT_CONFIG
+
+def get_4bit_config():
+    return _get_4bit_config()
 
 PERSONA_PATH = Path("persona-studio/personas/adam.md")
 
@@ -114,12 +122,16 @@ def load_config(path=None):
 
     q = cfg.get("quantization", {})
     if q:
-        _4BIT_CONFIG = BitsAndBytesConfig(
-            load_in_4bit=q.get("load_in_4bit", True),
-            bnb_4bit_compute_dtype=q.get("bnb_4bit_compute_dtype", torch.float16),
-            bnb_4bit_quant_type=q.get("bnb_4bit_quant_type", "nf4"),
-            bnb_4bit_use_double_quant=q.get("bnb_4bit_use_double_quant", False),
-        )
+        try:
+            from transformers import BitsAndBytesConfig
+            _4BIT_CONFIG = BitsAndBytesConfig(
+                load_in_4bit=q.get("load_in_4bit", True),
+                bnb_4bit_compute_dtype=q.get("bnb_4bit_compute_dtype", torch.float16),
+                bnb_4bit_quant_type=q.get("bnb_4bit_quant_type", "nf4"),
+                bnb_4bit_use_double_quant=q.get("bnb_4bit_use_double_quant", False),
+            )
+        except Exception:
+            _4BIT_CONFIG = None
 
     gen = cfg.get("generation", {})
     if gen:
