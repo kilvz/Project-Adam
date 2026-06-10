@@ -12,9 +12,11 @@ Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entire
 - **Streaming output** — Tokens appear one-by-one, no silent wait
 - **Web UI** — Gradio interface at `localhost:7860` (`--web`)
 - **Voice mode** — Speech-to-speech conversation (`--voice`)
-- **REST API** — FastAPI server at `localhost:8000`
+- **REST API** — FastAPI server at `localhost:8000` with streaming SSE, user profiles, and memory search
 - **Web search** — DuckDuckGo → Wikipedia fallback with cache
 - **Reward-driven learning** — SFL Q-learning, reward-weighted LoRA curriculum, sentiment analysis
+- **Configurable via YAML** — `config.yaml` overrides device, model, quantization, generation params
+- **Structured logging** — Standard `logging` framework with timestamps, levels, and module names
 
 ## Quick Start
 
@@ -22,17 +24,19 @@ Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entire
 pip install -r requirements.txt
 
 # CLI chat
-python3 adam_chat.py
+python3 -m project_adam
 
 # Web UI
-python3 adam_chat.py --web
+python3 -m project_adam --web
 
 # Voice mode (needs mic + speakers)
-python3 adam_chat.py --voice
+python3 -m project_adam --voice
 
 # REST API server
-python3 api_server.py
+uvicorn project_adam.api:app --host 0.0.0.0 --port 8000
 ```
+
+(legacy `python3 adam_chat.py` still works as a compat shim)
 
 ## Architecture
 
@@ -63,7 +67,7 @@ Metacognitive Controller ─┬─ Persona (adaptive behavioral rules)
 | `docs/memory.md` | Memory systems (episodic, semantic, neural) |
 | `docs/training.md` | LoRA fine-tuning, curriculum learning, SFL |
 | `docs/api.md` | REST API endpoints + usage examples |
-| `docs/setup.md` | Installation, requirements, CUDA setup |
+| `docs/setup.md` | Installation, requirements, CUDA setup, config, logging |
 | `docs/usage.md` | CLI, Web UI, Voice mode walkthrough |
 | `docs/faq.md` | Troubleshooting and common questions |
 

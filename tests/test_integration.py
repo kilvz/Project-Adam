@@ -1,16 +1,6 @@
 import pytest
 import torch
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-
-@pytest.fixture(autouse=True)
-def temp_memory_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr("adam_chat.MEMORY_DIR", tmp_path)
-    return tmp_path
-
 
 @pytest.fixture
 def mock_model():
@@ -34,7 +24,6 @@ def mock_model():
 
     return model
 
-
 @pytest.fixture
 def mock_tokenizer():
     tokenizer = MagicMock()
@@ -54,7 +43,6 @@ def mock_tokenizer():
     tokenizer._no_fallback = True
 
     return tokenizer
-
 
 @pytest.fixture
 def mock_persona():
@@ -77,12 +65,11 @@ def mock_persona():
     persona.select_weighted_rules.return_value = persona.behavior_rules[:2]
     return persona
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                         mock_model, mock_tokenizer, mock_persona, tmp_path, capsys):
     mock_am.from_pretrained.return_value = mock_model
@@ -97,7 +84,7 @@ def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
     fake_streamer.__iter__.return_value = iter(["hello", " ", "world"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
@@ -108,12 +95,11 @@ def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
     assert agent.current_profile is not None
     assert agent.current_profile["name"] == "Testuser"
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_with_question(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                              mock_model, mock_tokenizer, mock_persona, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -128,19 +114,18 @@ def test_chat_with_question(mock_peft, mock_streamer_cls, mock_st, mock_at, mock
     fake_streamer.__iter__.return_value = iter(["answer"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent, DEVICE
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
     reply = agent.chat("Hello")
     assert isinstance(reply, str)
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -155,7 +140,7 @@ def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     fake_streamer.__iter__.return_value = iter(["nice", " ", "to", " ", "meet", " ", "you"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
@@ -163,12 +148,11 @@ def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     assert "name" in agent.semantic_memory.schemas
     assert "likes" in agent.semantic_memory.schemas
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, mock_persona, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -183,7 +167,7 @@ def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     fake_streamer.__iter__.return_value = iter(["hello"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
@@ -191,12 +175,11 @@ def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     assert agent.current_profile is not None
     assert agent.current_profile["name"] == "Alice"
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                                mock_model, mock_tokenizer, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -211,7 +194,7 @@ def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mo
     fake_streamer.__iter__.return_value = iter(["thanks"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
     agent.chat("This is great, I love it!")
@@ -219,12 +202,11 @@ def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mo
     assert profile is not None
     assert profile.get("avg_sentiment", 0) > 0
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                            mock_model, mock_tokenizer, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -239,7 +221,7 @@ def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_a
     fake_streamer.__iter__.return_value = iter(["ok"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
@@ -248,12 +230,11 @@ def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_a
     assert len(q_hist) > 0
     assert isinstance(q_hist[0], float)
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -268,7 +249,7 @@ def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     fake_streamer.__iter__.return_value = iter(["ok"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
 
@@ -279,12 +260,11 @@ def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     assert len(ctx) >= 2
     assert ctx[-1]["role"] == "assistant"
 
-
-@patch("adam_chat.AutoModelForCausalLM")
-@patch("adam_chat.AutoTokenizer")
+@patch("project_adam.agent.AutoModelForCausalLM")
+@patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("adam_chat.TextIteratorStreamer")
-@patch("adam_chat.get_peft_model")
+@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.agent.get_peft_model")
 def test_chat_episodic_memory_updated(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                                        mock_model, mock_tokenizer, tmp_path):
     mock_am.from_pretrained.return_value = mock_model
@@ -299,7 +279,7 @@ def test_chat_episodic_memory_updated(mock_peft, mock_streamer_cls, mock_st, moc
     fake_streamer.__iter__.return_value = iter(["ok"])
     mock_streamer_cls.return_value = fake_streamer
 
-    from adam_chat import CognitiveAgent
+    from project_adam import CognitiveAgent
 
     agent = CognitiveAgent()
     before = len(agent.episodic_memory.episodes)

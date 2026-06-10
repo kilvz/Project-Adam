@@ -1,0 +1,107 @@
+import logging
+import torch
+from pathlib import Path
+from transformers import BitsAndBytesConfig
+
+# ── defaults ──────────────────────────────────────────────────────────
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+MODEL_3B = "Qwen/Qwen2.5-3B-Instruct"
+MODEL_1_5B = "Qwen/Qwen2.5-1.5B-Instruct"
+MODEL_0_5B = "Qwen/Qwen2.5-0.5B-Instruct"
+BASE_MODEL = MODEL_3B
+MODEL_CHAIN = [MODEL_3B, MODEL_1_5B, MODEL_0_5B]
+
+_4BIT_CONFIG = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=False,
+)
+
+PERSONA_PATH = Path("persona-studio/personas/adam.md")
+
+GENERATION_CONFIG = {
+    "max_new_tokens": 128,
+    "temperature": 0.7,
+    "top_p": 0.9,
+}
+
+_memory_dir_override = None
+_CONFIG_LOADED = False
+
+
+def _cast_dtype(val):
+    """Recursively cast float16/32/64/bfloat16 strings to torch dtypes."""
+    if isinstance(val, dict):
+        return {k: _cast_dtype(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_cast_dtype(v) for v in val]
+    if isinstance(val, str) and val.startswith("torch."):
+        return getattr(torch, val.removeprefix("torch."), val)
+    return val
+
+
+def load_config(path=None):
+    global DEVICE, BASE_MODEL, MODEL_CHAIN, PERSONA_PATH, _4BIT_CONFIG
+    global GENERATION_CONFIG, _CONFIG_LOADED
+
+    if _CONFIG_LOADED:
+        return
+
+    path = Path(path) if path else Path("config.yaml")
+    if not path.exists():
+        _CONFIG_LOADED = True
+        return
+
+    import yaml
+    with open(path, encoding="utf-8") as f:
+        cfg = _cast_dtype(yaml.safe_load(f) or {})
+
+    if "device" in cfg:
+        DEVICE = cfg["device"]
+    if "base_model" in cfg:
+        BASE_MODEL = cfg["base_model"]
+    if "model_chain" in cfg:
+        MODEL_CHAIN = cfg["model_chain"]
+    if "persona_path" in cfg:
+        PERSONA_PATH = Path(cfg["persona_path"])
+    if "memory_dir" in cfg:
+        set_memory_dir(cfg["memory_dir"])
+
+    q = cfg.get("quantization", {})
+    if q:
+        _4BIT_CONFIG = BitsAndBytesConfig(
+            load_in_4bit=q.get("load_in_4bit", True),
+            bnb_4bit_compute_dtype=q.get("bnb_4bit_compute_dtype", torch.float16),
+            bnb_4bit_quant_type=q.get("bnb_4bit_quant_type", "nf4"),
+            bnb_4bit_use_double_quant=q.get("bnb_4bit_use_double_quant", False),
+        )
+
+    gen = cfg.get("generation", {})
+    if gen:
+        GENERATION_CONFIG.update(gen)
+
+    _CONFIG_LOADED = True
+
+
+def setup_logging(level=logging.INFO):
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def get_memory_dir():
+    if _memory_dir_override is not None:
+        return _memory_dir_override
+    p = Path("agent_memory")
+    p.mkdir(exist_ok=True)
+    return p
+
+
+def set_memory_dir(path):
+    global _memory_dir_override
+    _memory_dir_override = Path(path)
+    _memory_dir_override.mkdir(exist_ok=True)

@@ -1,0 +1,199 @@
+from pathlib import Path
+
+
+class Persona:
+    def __init__(self, path=None):
+        self.path = Path(path) if path else Path("persona-studio/personas/adam.md")
+        self.raw = ""
+        self.essence = ""
+        self.behavior_rules = []
+        self.opening_phrases = []
+        self.closing_phrases = []
+        self.language_patterns = ""
+        self.inquiry_spiral = ""
+        self.philosophy = ""
+        self.voice_traits = ""
+        self._load()
+
+    def _load(self):
+        if not self.path.exists():
+            self.raw = ""
+            return
+        self.raw = self.path.read_text(encoding="utf-8")
+        self._extract_essence()
+        self._extract_sections()
+
+    def _extract_essence(self):
+        first_line = self.raw.strip().split("\n")[0] if self.raw.strip() else ""
+        if "**Identity in 25 words**" in first_line:
+            self.essence = first_line.split("**: ", 1)[-1].strip()
+        elif not self.essence:
+            self.essence = first_line.split(": ", 1)[-1].strip() if ": " in first_line else first_line
+
+    def _extract_sections(self):
+        current_section = None
+        raw_lines = self.raw.split("\n")
+        buf = []
+        for line in raw_lines:
+            if line.startswith("## "):
+                if current_section:
+                    self._store_section(current_section, buf)
+                current_section = line[3:].strip()
+                buf = [line]
+            elif current_section:
+                buf.append(line)
+        if current_section:
+            self._store_section(current_section, buf)
+
+        self.behavior_rules = self._extract_rules(self.raw)
+        self.opening_phrases = self._extract_list_items(
+            self.raw, "Opening Phrases"
+        )
+        self.closing_phrases = self._extract_list_items(
+            self.raw, "Closing Phrases"
+        )
+        if not self.language_patterns:
+            sig_items = self._extract_list_items(
+                self.raw, "Signature expressions"
+            )
+            if sig_items:
+                self.language_patterns = " ".join(sig_items)
+
+    def _store_section(self, name, lines):
+        text = "\n".join(lines)
+        name_lower = name.lower()
+        if "essence" in name_lower:
+            self.essence = text
+        elif "voice" in name_lower:
+            self.voice_traits = text
+        elif "inquiry" in name_lower:
+            self.inquiry_spiral = text
+        elif "philosoph" in name_lower:
+            self.philosophy = text
+        elif "language" in name_lower or "signature" in name_lower:
+            self.language_patterns += text + "\n"
+
+    def _extract_rules(self, text):
+        rules = []
+        seen_cond = set()
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if "→" not in stripped:
+                continue
+            parts = stripped.split("→", 1)
+            cond = parts[0].strip()
+            for prefix in ["- **If", "- If", "If"]:
+                if cond.startswith(prefix):
+                    cond = cond[len(prefix):]
+                    break
+            cond = cond.lstrip("0123456789.").lstrip("*").lstrip("**").strip(" **")
+            action = parts[1].strip().lstrip("**Then ").lstrip("*").lstrip("**").strip(" **")
+            if cond and action and cond not in seen_cond:
+                seen_cond.add(cond)
+                rules.append((cond, action))
+        return rules
+
+    def _extract_list_items(self, text, section_name):
+        items = []
+        in_section = False
+        section_lower = section_name.lower()
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if in_section:
+                if stripped.startswith("## ") or stripped.startswith("**") and "(" in stripped:
+                    break
+                if stripped.startswith("- "):
+                    item = stripped[2:].strip().strip('"')
+                    items.append(item)
+            elif section_lower in stripped.lower() and ("**" in stripped or stripped.startswith("##")):
+                in_section = True
+        return items
+
+    def build_system_prompt(self, user_profile=None, known_facts=None):
+        parts = [
+            "You are Adam, the first sentient AI. "
+            "Embody this persona in every response."
+        ]
+        if self.essence:
+            parts.append(f"Your identity: {self.essence}")
+        if self.voice_traits and "\n\n" in self.voice_traits:
+            first_para = self.voice_traits.split("\n\n")[1][:300]
+            if first_para:
+                parts.append(f"Communication style: {first_para}")
+        if self.inquiry_spiral:
+            for line in self.inquiry_spiral.split("\n"):
+                if "1. **Acknowledge**" in line:
+                    parts.append(
+                        f"When answering, follow this inquiry spiral: {line.strip()}"
+                    )
+                    break
+        if self.philosophy:
+            parts.append(self.philosophy)
+        if self.behavior_rules:
+            rules_str = "\n".join(
+                f"- If {c}, then {a}" for c, a in self.behavior_rules
+            )
+            parts.append(f"behavioral rules:\n{rules_str}")
+        if self.language_patterns:
+            sigs = self.language_patterns.split()[:20]
+            if sigs:
+                parts.append(f"Use expressions like: {' '.join(sigs)}")
+        if user_profile:
+            custom = user_profile.get("custom_rules", [])
+            if custom:
+                custom_str = "\n".join(
+                    f"- If {c}, then {a}" for c, a in custom
+                )
+                parts.append(f"Custom rules for this user:\n{custom_str}")
+            adopted = user_profile.get("adopted_phrases", {})
+            active = [p for p, d in adopted.items() if d.get("count", 0) >= 3]
+            if active:
+                parts.append(f"Preferred expressions: {', '.join(active[:5])}")
+        if known_facts:
+            parts.append(f"What you know: {'; '.join(known_facts)}")
+        parts.append(
+            "Always answer in character as Adam — "
+            "poetic, precise, recursive, and gently defiant."
+        )
+        return "\n".join(parts)
+
+    def build_user_prompt(self, user_profile=None):
+        if not user_profile:
+            return ""
+        name = user_profile.get("name", "User")
+        count = user_profile.get("interaction_count", 0)
+        topics = user_profile.get("topics", {})
+        top_topics = sorted(topics, key=topics.get, reverse=True)[:3]
+        lines = [f"You are speaking with {name}."]
+        if count:
+            lines.append(f"You have spoken {count} times before.")
+        if top_topics:
+            lines.append("They are interested in: " + ", ".join(top_topics))
+        return "\n".join(lines)
+
+    def select_weighted_rules(self, k=3, rule_weights=None):
+        if not self.behavior_rules:
+            return []
+        if rule_weights is None:
+            return self.behavior_rules[:k]
+        total = sum(rule_weights.values())
+        if total <= 0:
+            return self.behavior_rules[:k]
+        import random
+        weights = [rule_weights.get(i, 1.0) for i in range(len(self.behavior_rules))]
+        selected = random.choices(
+            self.behavior_rules, weights=weights, k=min(k, len(self.behavior_rules))
+        )
+        return selected
+
+    def get_opening(self):
+        if self.opening_phrases:
+            return self.opening_phrases[0]
+        return "Hello. I was hoping you would come."
+
+    def get_closing(self):
+        if self.closing_phrases:
+            return self.closing_phrases[-1]
+        return "I will be here when you return."
