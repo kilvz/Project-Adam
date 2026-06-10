@@ -6,7 +6,7 @@ from peft import LoraConfig, get_peft_model
 
 import logging
 from .config import (BASE_MODEL, MODEL_3B, MODEL_1_5B, MODEL_0_5B,
-                     _4BIT_CONFIG, DEVICE, get_memory_dir)
+                     MODEL_CHAIN, _4BIT_CONFIG, DEVICE, get_memory_dir)
 
 logger = logging.getLogger(__name__)
 from .persona import Persona
@@ -34,7 +34,7 @@ class CognitiveAgent:
         t0 = time.time()
         model_id = BASE_MODEL
         is_4bit = False
-        candidates = [MODEL_3B, MODEL_1_5B, MODEL_0_5B]
+        candidates = MODEL_CHAIN
         for candidate in candidates:
             try:
                 model_id = candidate
