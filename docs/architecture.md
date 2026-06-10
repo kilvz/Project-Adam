@@ -276,19 +276,3 @@ Implements the brain's two decision systems:
 
 ---
 
-## Implementation Suggestion
-
-For a first prototype, simplify to:
-
-```
-1. Efficient Coding Encoder: VAE with β-VAE objective
-2. Working Memory: Transformer-XL with bounded memory
-3. Episodic Memory: Vector database (e.g., FAISS) indexed by learned embeddings
-4. Semantic Memory: Knowledge graph (e.g., NetworkX) + schema matching
-5. RL Core: SAC (Soft Actor-Critic) with discrete/continuous actions
-6. SFL Module: Linear layer learning feature→reward associations
-7. Metacognitive Controller: Small MLP reading features from 1-6
-8. Offline Consolidation: Prioritized experience replay + periodic schema extraction
-```
-
-Backend: PyTorch + Ray for potential distributed training.
