@@ -147,10 +147,21 @@ def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     mock_peft.return_value = mock_model
 
     import numpy as np
+    _CATEGORY_BASES = {
+        "name": np.array([1.0, 0.0, 0.0, 0.0, 0.0]),
+        "location": np.array([0.0, 1.0, 0.0, 0.0, 0.0]),
+        "age": np.array([0.0, 0.0, 1.0, 0.0, 0.0]),
+        "likes": np.array([0.0, 0.0, 0.0, 1.0, 0.0]),
+        "dislikes": np.array([0.0, 0.0, 0.0, 0.0, 1.0]),
+    }
     def _encode_side(text, **kw):
+        lower = text.lower()
+        for cat, base in _CATEGORY_BASES.items():
+            if cat in lower:
+                return base
         h = hash(str(text)) & 0xFFFF
         rng = np.random.RandomState(h)
-        v = rng.randn(3)
+        v = rng.randn(5)
         return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
     mock_emb_model.encode.side_effect = _encode_side

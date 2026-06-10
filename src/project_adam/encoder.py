@@ -68,7 +68,7 @@ class SensoryEncoder(nn.Module):
         k = max(1, int(z.shape[-1] * _SPARSITY_KEEP_FRAC))
         vals, _ = torch.topk(torch.abs(z), k, dim=-1)
         threshold = vals[..., -1].unsqueeze(-1)
-        mask = (torch.abs(z) >= threshold).float()
+        mask = (torch.abs(z) >= threshold).to(dtype=z.dtype)
         return z * mask
 
     def forward(self, x):
