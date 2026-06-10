@@ -26,6 +26,7 @@ from .selector import ActionSelector
 from .rl_core import TDCore
 from .world_model import WorldModel
 from .rl_core import TDCore as _TDCore
+from .config import BACKEND_CONFIG
 
 
 class CognitiveAgent:
@@ -65,7 +66,8 @@ class CognitiveAgent:
 
         self.world_model = WorldModel()
         self.web_search = WebSearch()
-        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model)
+        self.backend = BACKEND_CONFIG.get("mode", "local")
+        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend)
         enc_input_dim = 384
         self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
         self.working_memory = WorkingMemory(max_turns=64)
@@ -176,7 +178,7 @@ class CognitiveAgent:
                         self.semantic_memory.add("web_knowledge", result[:300])
                     self.episodic_memory.add(f"[auto-search] {result[:200]}", reward=0.4)
 
-        self.episodic_memory.add(user_input, context=str(self.working_memory.get_context(4)))
+        self.episodic_memory.add(user_input, context=str(self.working_memory.get_context(4)), backend=self.backend)
 
         reward = _TDCore.compute_reward(user_input, self.current_profile, self.episodic_memory.embedder)
 
@@ -230,7 +232,7 @@ class CognitiveAgent:
         reply = self.language.apply_behavioral_rules(
             user_input, reply, reward, self.persona, self.current_profile
         )
-        self.episodic_memory.update_last_action(reply)
+        self.episodic_memory.update_last_action(reply, backend=self.backend)
         self.working_memory.add("assistant", reply)
         self._update_rule_weights(reward)
 

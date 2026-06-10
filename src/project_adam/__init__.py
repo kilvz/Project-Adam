@@ -1,10 +1,11 @@
 from .config import (DEVICE, MODEL_3B, MODEL_1_5B, MODEL_0_5B, BASE_MODEL,
                      MODEL_CHAIN, _4BIT_CONFIG, PERSONA_PATH, GENERATION_CONFIG,
-                     get_memory_dir, set_memory_dir, load_config, setup_logging)
+                     BACKEND_CONFIG, get_memory_dir, set_memory_dir,
+                     load_config, setup_logging)
 load_config()
 from .persona import Persona
 from .profiles import UserProfileManager
-from .encoder import SensoryEncoder
+from .encoder import SensoryEncoder, VisionEncoder, AudioEncoder
 from .memory.working import WorkingMemory
 from .memory.episodic import EpisodicMemory
 from .memory.semantic import SemanticMemory
@@ -24,8 +25,10 @@ from .agent import CognitiveAgent
 __all__ = [
     "DEVICE", "MODEL_3B", "MODEL_1_5B", "MODEL_0_5B", "BASE_MODEL",
     "MODEL_CHAIN", "_4BIT_CONFIG", "PERSONA_PATH", "GENERATION_CONFIG",
-    "get_memory_dir", "set_memory_dir", "load_config", "setup_logging",
-    "Persona", "UserProfileManager", "SensoryEncoder",
+    "BACKEND_CONFIG", "get_memory_dir", "set_memory_dir",
+    "load_config", "setup_logging",
+    "Persona", "UserProfileManager",
+    "SensoryEncoder", "VisionEncoder", "AudioEncoder",
     "WorkingMemory", "EpisodicMemory", "SemanticMemory",
     "ProceduralMemory", "SpatialMemory", "SQLiteStore",
     "LanguageInterface",

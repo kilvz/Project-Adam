@@ -1,7 +1,9 @@
+import json
 import torch
 import threading
 import re
 from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
+from .config import BACKEND_CONFIG
 
 
 _SENTENCE_STOPPER_MIN = 20
@@ -23,24 +25,60 @@ class _SentenceStopper(StoppingCriteria):
 
 class LanguageInterface:
     def __init__(self, model, tokenizer, persona=None, web_search=None,
-                 world_model=None):
+                 world_model=None, backend=None):
         self.model = model
         self.tokenizer = tokenizer
         self.persona = persona
         self.web_search = web_search
         self.world_model = world_model
+        self.backend = backend or BACKEND_CONFIG.get("mode", "local")
 
-    def generate(self, messages, meta_action=None, token_callback=None, temperature=0.7):
-        used_search = False
-        web_context = None
-        if meta_action in ("ASK_FOR_HELP", "EXPLORE") and self.web_search is not None:
-            user_text = messages[-1]["content"] if messages else ""
-            result = self.web_search.search(user_text)
-            if result:
-                used_search = True
-                web_context = result
+    def _api_generate(self, messages, temperature=0.7, token_callback=None,
+                      meta_action=None):
+        import requests as req
+        api_cfg = BACKEND_CONFIG.get("api", {})
+        headers = {
+            "Authorization": f"Bearer {api_cfg.get('key', '')}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": api_cfg.get("model", "gpt-4o-mini"),
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 128,
+            "stream": True,
+        }
+        timeout = api_cfg.get("timeout", 30)
+        reply = ""
+        try:
+            resp = req.post(
+                api_cfg.get("endpoint", "https://api.openai.com/v1/chat/completions"),
+                headers=headers, json=body, stream=True, timeout=timeout,
+            )
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                line = line.decode("utf-8", errors="replace").strip()
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            if token_callback:
+                                token_callback(content)
+                            reply += content
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+        return reply.strip()
 
-        system = self.build_prompt(None, None, web_context, meta_action)
+    def _local_generate(self, messages, temperature=0.7, token_callback=None):
+        system = self.build_prompt(None, None, None, None)
         if system:
             messages.insert(0, {"role": "system", "content": system})
         text = self.tokenizer.apply_chat_template(
@@ -78,7 +116,33 @@ class LanguageInterface:
             reply += tok
 
         thread.join(timeout=30)
-        reply = reply.strip()
+        return reply.strip()
+
+    def generate(self, messages, meta_action=None, token_callback=None, temperature=0.7):
+        used_search = False
+        web_context = None
+        if meta_action in ("ASK_FOR_HELP", "EXPLORE") and self.web_search is not None:
+            user_text = messages[-1]["content"] if messages else ""
+            result = self.web_search.search(user_text)
+            if result:
+                used_search = True
+                web_context = result
+
+        msgs = list(messages)
+        system = self.build_prompt(None, web_context, web_context, meta_action)
+        if system:
+            msgs.insert(0, {"role": "system", "content": system})
+
+        if self.backend == "api":
+            reply = self._api_generate(
+                msgs, temperature=temperature, token_callback=token_callback,
+                meta_action=meta_action,
+            )
+        else:
+            reply = self._local_generate(
+                msgs, temperature=temperature, token_callback=token_callback,
+            )
+
         if self.world_model is not None and reply:
             speaker_conf = self.compute_utterance_likeness(reply)
             self.world_model.observe_from_text(reply, speaker_conf)
@@ -146,6 +210,8 @@ class LanguageInterface:
     def compute_utterance_likeness(self, text):
         if not text or len(text) < 5:
             return 1.0
+        if self.backend == "api":
+            return 0.5
         try:
             enc = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(self.model.device)
             with torch.no_grad():

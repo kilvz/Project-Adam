@@ -1,3 +1,4 @@
+import os
 import logging
 import torch
 from pathlib import Path
@@ -25,6 +26,16 @@ GENERATION_CONFIG = {
     "max_new_tokens": 128,
     "temperature": 0.7,
     "top_p": 0.9,
+}
+
+BACKEND_CONFIG = {
+    "mode": "local",
+    "api": {
+        "endpoint": "https://api.openai.com/v1/chat/completions",
+        "key": "",
+        "model": "gpt-4o-mini",
+        "timeout": 30,
+    },
 }
 
 _memory_dir_override = None
@@ -81,6 +92,23 @@ def load_config(path=None):
     gen = cfg.get("generation", {})
     if gen:
         GENERATION_CONFIG.update(gen)
+
+    b = cfg.get("backend", {})
+    if b:
+        mode = b.get("mode", "local")
+        BACKEND_CONFIG["mode"] = mode
+        api = b.get("api", {})
+        if api:
+            key_raw = api.get("key", "")
+            if key_raw.startswith("${") and key_raw.endswith("}"):
+                env_var = key_raw[2:-1]
+                key_raw = os.environ.get(env_var, "")
+            BACKEND_CONFIG["api"].update({
+                "endpoint": api.get("endpoint", BACKEND_CONFIG["api"]["endpoint"]),
+                "key": key_raw or BACKEND_CONFIG["api"]["key"],
+                "model": api.get("model", BACKEND_CONFIG["api"]["model"]),
+                "timeout": api.get("timeout", BACKEND_CONFIG["api"]["timeout"]),
+            })
 
     _CONFIG_LOADED = True
 

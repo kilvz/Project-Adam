@@ -47,7 +47,8 @@ class EpisodicMemory:
     def save(self):
         self._store.save(self.episodes)
 
-    def add(self, text, reward=0.0, rpe=None, context=None, action=None):
+    def add(self, text, reward=0.0, rpe=None, context=None, action=None,
+            backend=None):
         with self._lock:
             if self.embedder and len(self.episodes) > 0:
                 new_emb = self.encode(text)
@@ -70,6 +71,8 @@ class EpisodicMemory:
                     existing["ts"] = time.time()
                     if action is not None:
                         existing["action"] = action
+                    if backend is not None:
+                        existing["backend"] = backend
                     self.save()
                     return
 
@@ -80,6 +83,7 @@ class EpisodicMemory:
                 "reward": reward,
                 "rpe": rpe,
                 "context": context,
+                "backend": backend,
                 "ts": time.time(),
                 "count": 1,
             }
@@ -91,10 +95,12 @@ class EpisodicMemory:
                 self._symbolic_index.setdefault(word, []).append(idx)
         self.save()
 
-    def update_last_action(self, action_text):
+    def update_last_action(self, action_text, backend=None):
         with self._lock:
             if self.episodes:
                 self.episodes[-1]["action"] = action_text
+                if backend is not None:
+                    self.episodes[-1]["backend"] = backend
 
     def search(self, query, k=5):
         if not self.episodes or not query.strip():
