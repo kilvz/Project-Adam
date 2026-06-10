@@ -138,4 +138,8 @@ generation:
 
 ## License
 
-MIT
+**AGPL v3** with commercial option — see [LICENSE](LICENSE).
+
+Free to use, modify, and distribute under the AGPL v3 terms.
+If you use this software in a proprietary product without releasing
+your source code, you must purchase a commercial license.
