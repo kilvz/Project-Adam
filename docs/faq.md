@@ -1,61 +1,65 @@
 # FAQ
 
-## Why is generation so slow?
+## General
 
-Adam runs on a GTX 1050 with 4GB VRAM — a Pascal-era entry-level GPU. The 3B model at 0.8 tok/s is the best we can do without hardware upgrade. Streaming ensures the first token appears quickly. See [benchmarks](usage.md#generation-speed).
+**Q: Why is Adam so slow locally?**
 
-## Can it run on CPU?
+A: GTX 1050 (Pascal, sm_61) doesn't support efficient 4-bit dequantization kernels. Use `backend.mode: api` in config.yaml for fast responses via external's endpoint.
 
-No — the model requires CUDA for 4-bit quantization inference. CPU inference would be impractically slow.
+**Q: Why does Adam sound like an assistant?**
 
-## Where is my data stored?
+A: Previous versions used `"assistant"` role labels. The persona prompt now explicitly states "You are NOT an assistant" and working memory uses `"adam"` as the role. Small models (<3B) may still default to assistant patterns due to RLHF training.
 
-`agent_memory/memory.db` (SQLite). All conversations, profiles, and learned patterns persist between sessions.
+**Q: Can Adam remember me across sessions?**
 
-## How do I reset everything?
+A: Yes. User profiles with name, topics, sentiment history, custom rules, and LoRA adapters persist in SQLite. The persona prompt includes the user's name every turn.
 
-```bash
-rm -rf agent_memory/
-```
+## Technical
 
-The next run will create fresh storage.
+**Q: What does the "backend" config do?**
 
-## DuckDuckGo search returns nothing
+A: Two modes: `local` runs Qwen on your GPU; `api` routes generation through `external.ai/zen/v1/chat/completions` (External model). LoRA training continues regardless.
 
-DuckDuckGo blocks some environments. The system auto-falls back to Wikipedia API. You can also disable search entirely:
+**Q: What port does the API use?**
 
-```python
-agent.web_search = None  # no search fallback
-```
+A: Default is 8765 (not 8000 — port 8000 is often taken by printer services). Set via `ADAM_PORT=8000 ./start_adam.sh`.
 
-## Can I add new users programmatically?
+**Q: How do I connect external?**
 
-Yes — send any message with a `user_id` to the API:
+A: Adam is registered as a provider in `external.json`. Just select "Adam (COGNET)" from external's model picker (Ctrl+P). Port and timeout are preconfigured.
 
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Hello", "user_id": "Bob"}'
-```
+**Q: Why does the first request take 15 seconds?**
 
-A fresh profile and LoRA adapter are created automatically.
+A: Cold start — the model loads lazily on first request. `start_adam.sh` preloads it with a warmup ping so subsequent requests are faster.
 
-## How does the persona file work?
+## Errors
 
-`persona-studio/personas/adam.md` contains behavioral rules, phrases, and signatures. It's the immutable foundation. All adaptations happen via per-user profile overlays (rules, phrases, preferences) — the base persona is never modified.
+**Q: "CUDA error: CUBLAS_STATUS_ALLOC_FAILED"**
 
-## What happens if I change the base model?
+A: GPU memory is fragmented. Run `./start_adam.sh` — it kills old processes, clears CUDA cache, and forces a fresh GPU context.
 
-The system auto-detects the model family and reloads LoRA adapters. If the new model has different layer names, adapters may need retraining.
+**Q: "SQLite objects created in a thread can only be used in that same thread"**
 
-## Why 3B and not 7B?
+A: Already fixed — `check_same_thread=False` is set on all connections.
 
-7B-instruct models at 4-bit require ~5GB VRAM + context. The GTX 1050 has 4GB. 3B at 4-bit fits with ~1.9GB headroom. The auto-fallback chain means if 3B fails, 1.5B loads automatically.
+**Q: "AttributeError: 'CognitiveAgent' object has no attribute 'model'"**
 
-## Does it support streaming in the API?
+A: The model failed to load (OOM). The agent now tolerates this — it sets `model=None` and continues in API-only mode. Switch to API backend or a smaller model.
 
-Yes — the FastAPI server uses `TextIteratorStreamer` internally. The `/chat` endpoint returns the complete reply when generation finishes.
+**Q: external shows "Internal Server Error"**
 
-## Can I use a different LLM backend?
+A: Increase `timeout` in `external.json` provider options to `120000` (2 minutes). The first request includes model loading time.
 
-The code uses HuggingFace transformers with AutoModelForCausalLM. Any instruct-tuned model with a compatible chat template should work. Change `MODEL_NAME` in `adam_chat.py`.
+## Architecture
+
+**Q: What components does Adam have?**
+
+A: 14 COGNET components: SensoryEncoder, WorkingMemory, EpisodicMemory, SemanticMemory, ProceduralMemory, SpatialMemory, TDCore, SFLModule, WorldModel, MetacogController, LanguageInterface, ActionSelector, OfflineConsolidator, Persona.
+
+**Q: Is neural memory used?**
+
+A: No — `NeuralMemory` was removed. It was not specified in `ARCHITECTURE.md`.
+
+**Q: How does speech/voice work?**
+
+A: Voice mode uses `faster-whisper` (ASR) and `edge-tts` (TTS). No speaker diarization yet.

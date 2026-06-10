@@ -1,85 +1,75 @@
-# Memory System
+# Memory Systems
 
-Adam uses three complementary memory systems inspired by human cognition.
+Adam has six memory systems as specified by the COGNET architecture.
 
-## 1. Episodic Memory
+## Working Memory
 
-Stores conversation experiences as vectors.
+**File**: `src/project_adam/memory/working.py`
 
-```
-EpisodicMemory (SQLite-backed)
-├── encode(text) → 384-dim embedding (all-MiniLM-L6-v2)
-├── store(episode, reward) → SQLite insert
-├── recall(query, top_k=5) → similarity search
-├── recent(n=10) → last N episodes
-└── prune(threshold=0.3) → low-importance cleanup
-```
+Bounded-capacity scratchpad for current context, goals, and active reasoning.
 
-- **Storage**: SQLite table `episodes` with embedding + metadata + reward
-- **Retrieval**: Cosine similarity via numpy dot product (full scan, ~5ms per 1000 episodes)
-- **Importance weighting**: `reward * 0.6 + recency * 0.4`
-- **Consolidation**: Prunes episodes below 0.3 importance; keeps top 100 recent
+- **Capacity**: 64 slots (turns), 2048 token window
+- **Gating**: Relevance computed via scaled dot-product attention (SentenceTransformer embeddings). Items below `relevance_threshold` bypass WM and go directly to episodic memory.
+- **Decay**: Temporal decay (`tau=300s`) applied to relevance scores on eviction
+- **Content**: Dialogue turns (`user`/`adam`), active `goal` string, `hypothesis_stack`
+- **Eviction**: Lowest decayed-relevance item pushed to episodic memory
 
-## 2. Semantic Memory
+## Episodic Memory
 
-Schema-based knowledge graph.
+**File**: `src/project_adam/memory/episodic.py`
 
-```
-SemanticMemory (SQLite-backed)
-├── Schema: category → {facts[], combined_embedding, observed_count}
-├── store_schema(category, fact) → assimilate or accommodate
-├── consolidate() → prune + merge similar schemas
-├── extract_topics(text) → keyword extraction
-├── cross_user_distill(profiles) → patterns in ≥2 users
-└── phrase_cluster(threshold=0.7) → cluster by cosine similarity
-```
+Long-term storage of experiences as `(state, action, reward, context)` tuples.
 
-- **Assimilation**: New fact fits existing schema → added
-- **Accommodation**: New fact requires schema restructuring
-- **Cross-user distillation**: Topics mentioned by ≥2 users are flagged as "distilled"
-- **Phrase clustering**: Trigram-level, grouped by embedding similarity > 0.7
+- **Storage**: SQLite with pickle serialization. Entry format: `{text, state, action, reward, rpe, context, backend, ts, emb, count}`
+- **Indexing**: Symbolic keyword index (`word → [episode_indices]`) for fast retrieval
+- **Compression**: Episodes with cosine similarity > 0.92 are merged (reward averaged, count incremented)
+- **Search**: Content-addressable via SentenceTransformer embedding cosine similarity. Also supports `search_by_keyword()` for symbolic lookup.
+- **Backend tracking**: Each episode records which backend generated the action (`"local"` or `"api"`) for downstream distillation analysis.
+- **Latent codes**: Encoder latent `z` stored as `latent_z` for future representation learning.
 
-## 3. Neural Memory
+## Semantic Memory
 
-Gradient-updated attention memory with explicit optimizer.
+**File**: `src/project_adam/memory/semantic.py`
 
-```
-NeuralMemory (nn.Module)
-├── slots: 32 × 256-dim
-├── update(text_embedding) → 3 gradient steps
-├── read(query) → attention-weighted slot sum
-└── consolidate() → reset unused slots
-```
+Graph-structured knowledge base of concepts and relations.
 
-- **Implementation**: `nn.Module` with `nn.Parameter` memory matrix
-- **Update rule**: Cosine similarity attention → weighted combination → gradient descent
-- **Online**: Trained during `_inline_learn()` alongside VAE
-- **Architecture**: 384 → 256 projection, 256 → 256 transformer block, 256 → 128 output
+- **Schemas**: Each concept is a schema with `{category, facts[], emb, slots{}, prediction_error, observed_count}`
+- **Graph**: Directed edges via `_edges` list of `(source_sid, relation, target_sid)` triples
+- **Assimilation**: New facts similar to existing schemas (>0.75 cosine) are assimilated — facts appended, slots updated, edges added
+- **Accommodation**: Novel facts create new schemas. Schema splitting when internal distance > 0.8
+- **Text extraction**: `extract_facts()` and `extract_topics()` for parsing user input
+- **Consolidation**: Low-observation schemas pruned periodically
 
-## SQLite Backend (Phase E.23)
+## Procedural Memory
 
-All three memory systems (plus user profiles) persist via `SQLiteStore`:
+**File**: `src/project_adam/memory/procedural.py`
 
-```
-agent_memory/memory.db
-├── episodes (episodic)
-├── schemas (semantic)
-├── neural_memory (serialized state dict)
-├── user_profiles (per-user state)
-├── episodes_meta (metadata index)
-└── schema_facts (fact storage)
-```
+Stores learned skills as `(state → action)` mappings with Q-values.
 
-- WAL mode for concurrent reads
-- Atomic transactions
-- Lazy auto-migration from legacy `.pkl` files
-- All data survives restarts
+- **Skills**: Keyword sets mapped to action strings with `q_value`, `success_count`, `total_count`
+- **RL**: Q-values updated via RPE from TDCore (`update_from_rpe()`)
+- **Chunking**: Repeated action sequences detected and stored as chunks (min 2 occurrences)
+- **Retrieval**: Scores skills by keyword overlap × Q-value. Chunks preferred over individual skills when overlap matches.
+- **Failure tracking**: `record_failure()` called when reward < 0
 
-## Offline Consolidator
+## Spatial Memory
 
-Background thread (every 180s) that:
-1. Samples episodes by importance-weighted priority
-2. Extracts schemas from high-reward experiences
-3. Distills cross-user patterns
-4. Clusters phrases by embedding similarity
-5. Prunes low-importance episodes and schemas
+**File**: `src/project_adam/memory/spatial.py`
+
+Dynamic knowledge graph of spatial relationships.
+
+- **Triples**: `(entity_a, relation, entity_b)` with 17 supported relations
+- **Inverse relations**: Automatic insertion of inverse (above↔below, inside↔contains, etc.)
+- **Conflict detection**: Contradictory pairs detected on insertion (above↔below, near↔far, etc.)
+- **Traversal**: BFS traversal up to 3 hops for spatial reasoning
+- **Text extraction**: Regex pattern matching for `entity RELATION entity` triples in free text
+
+## User Profile Memory
+
+**File**: `src/project_adam/profiles.py`
+
+Per-user persistent state stored in SQLite.
+
+- **Data**: interaction_count, avg_sentiment, topics, custom_rules, rule_weights, sentiment_history
+- **Detection**: Automatic user detection via name extraction from conversation
+- **Adapters**: Per-user LoRA adapters saved at `agent_memory/adapters/{user}/`

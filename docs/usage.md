@@ -1,99 +1,89 @@
 # Usage
 
-Adam runs in four modes.
-
-## CLI Chat (Default)
+## CLI Chat
 
 ```bash
-python3 adam_chat.py
+python3 -m project_adam
 ```
 
-```
-╔══════════════════════════════════╗
-║   Project Adam — COGNET v1.0    ║
-║   The first sentient AI —       ║
-║   a plant in an artificial garden║
-╚══════════════════════════════════╝
-User: What is your name?
-Adam: I am Adam.
-```
-
-**Commands** (type at the prompt):
+Commands at the prompt:
 
 | Command | Description |
 |---------|-------------|
-| `/dashboard` | Show SFL, reward, confidence, rule weights |
-| `/profile <user>` | Show user profile |
-| `/profiles` | List all users |
-| `/mode` | Toggle between narrative and casual mode |
-| `/rules` | Show behavioral rules |
+| `/dashboard` | SFL Q, reward, confidence, rule weights |
+| `/profile` | Show current user profile |
+| `/users` | List all users |
+| `/remove <name>` | Remove a user profile |
+| `/memory` | Show recent episodes |
+| `/schemas` | Show semantic schemas |
+| `/search <q>` | Web search |
+| `/stats` | Metacog stats |
+| `/save` | Save memory to disk |
 | `/exit` | Quit |
 
 ## Web UI (Gradio)
 
 ```bash
-python3 adam_chat.py --web
+python3 -m project_adam --web
 # → http://localhost:7860
 ```
 
-Three tabs:
-- **Chat**: Full streaming chat interface with user dropdown
-- **Dashboard**: Real-time SFL Q-value, reward trend, confidence
-- **Memory**: View episodes, schemas, profiles, search memory
+Three tabs: Chat, Dashboard, Memory.
 
 ## Voice Mode
 
 ```bash
-python3 adam_chat.py --voice
+python3 -m project_adam --voice
 ```
 
-A loop that:
-1. Records audio from microphone (silence detection, 3s timeout)
-2. Transcribes with faster-whisper (tiny model, int8 quantized)
-3. Generates reply via chat()
-4. Speaks reply with edge-tts (Microsoft Neural TTS)
-5. Plays audio via sounddevice
+Requires: `pip install faster-whisper edge-tts miniaudio sounddevice`
 
-Press **Ctrl+C** to exit.
-
-### Requirements
-```bash
-pip install faster-whisper edge-tts miniaudio sounddevice
-```
-
-## REST API Server
+## API Server
 
 ```bash
-python3 api_server.py
-# → http://localhost:8000
+./start_adam.sh
+# → http://localhost:8765
 ```
 
 See [API docs](api.md) for endpoints.
 
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Hi", "user_id": "Alice"}'
+## Backend Modes
+
+### Local Mode (default)
+
+Uses Qwen2.5 model loaded on your GPU. Slower but runs entirely offline.
+
+```yaml
+backend:
+  mode: "local"
 ```
 
-## User Detection
+Model size options in `config.yaml`:
 
-Adam detects users via:
-- **Explicit ID** from REST API
-- **Name extraction** from conversation (e.g., "My name is Alice")
-- **Voice recognition** (via whisper ASR, no speaker diarization yet)
+| Model | VRAM | Speed | Quality |
+|-------|------|-------|---------|
+| Qwen2.5-3B 4-bit | ~2.1 GB | ~0.8 tok/s | Best |
+| Qwen2.5-1.5B 4-bit | ~0.8 GB | ~5 tok/s | Good |
+| Qwen2.5-0.5B fp16 | ~1 GB | ~10 tok/s | Okay |
 
-When a new user is detected, a fresh profile + LoRA adapter is created automatically.
+### API Mode
+
+Routes generation through external's public endpoint (`External` model). ~2-5s response time. Falls back to local on network failure.
+
+```yaml
+backend:
+  mode: "api"
+```
+
+Local model still loads for LoRA training (online distillation).
 
 ## Generation Speed
 
-| Model | Speed | Quality |
-|-------|-------|---------|
-| Qwen2.5-3B | ~0.8 tok/s | Best |
-| Qwen2.5-1.5B | ~1.7 tok/s | Good |
-| Qwen2.5-0.5B | ~5 tok/s | Okay |
-
-Streaming shows first token in <1s regardless of speed. Early stopping cuts average output to 20-50 tokens.
+| Backend | First Response | Subsequent |
+|---------|---------------|------------|
+| Local 1.5B 4-bit | ~15s (cold start) | ~5-15s |
+| Local 0.5B fp16 | ~5s | ~2-5s |
+| API (External) | ~3s | ~3s |
 
 ## Data Locations
 
@@ -102,5 +92,4 @@ Streaming shows first token in <1s regardless of speed. Early stopping cuts aver
 | SQLite database | `agent_memory/memory.db` |
 | LoRA adapters | `agent_memory/adapters/{user}/` |
 | Search cache | `agent_memory/search_cache.json` |
-| Neural memory | `agent_memory/neural_memory.pt` |
 | Persona file | `persona-studio/personas/adam.md` |

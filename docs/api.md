@@ -1,171 +1,165 @@
 # REST API
 
-FastAPI server at `localhost:8000`. Start with:
+FastAPI server with two API surfaces: **legacy custom API** and **OpenAI-compatible**.
+
+## Starting
 
 ```bash
-# Via module (recommended)
-python3 -m project_adam
+# Start with launch script (recommended)
+./start_adam.sh
+# → http://localhost:8765
 
-# Or uvicorn directly
-uvicorn project_adam.api:app --host 0.0.0.0 --port 8000
+# Or directly
+PYTHONPATH=src uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
 
-# Or legacy entry point
-python3 src/project_adam/api.py
+# Pre-warmer: first request loads the model (~15s for 1.5B 4-bit)
 ```
 
-## Endpoints
+## OpenAI-Compatible Endpoints
+
+### `GET /v1/models`
+
+Returns available models. external uses this for auto-discovery.
+
+```bash
+curl http://localhost:8765/v1/models
+```
+
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "adam-cognet", "object": "model", "created": ..., "owned_by": "project_adam"}
+  ]
+}
+```
+
+### `POST /v1/chat/completions`
+
+OpenAI-compatible chat completions. Supports both streaming and non-streaming.
+
+```bash
+# Non-streaming
+curl -X POST http://localhost:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"adam-cognet","messages":[{"role":"user","content":"Hello"}],"stream":false}'
+
+# Streaming
+curl -X POST http://localhost:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"adam-cognet","messages":[{"role":"user","content":"Hello"}],"stream":true}'
+```
+
+**Request body** (OpenAI format):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | `adam-cognet` | Model identifier |
+| `messages` | array | required | `[{role, content}]` array |
+| `stream` | bool | `false` | Enable SSE streaming |
+| `temperature` | float | 0.7 | Generation temperature |
+| `max_tokens` | int | 128 | Max tokens to generate |
+
+**Non-streaming response** (OpenAI format):
+
+```json
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1712345678,
+  "model": "adam-cognet",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "Hello. I was hoping you would come..."},
+    "finish_reason": "stop"
+  }]
+}
+```
+
+**Streaming response** (SSE, OpenAI format):
+
+```
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"}}]}
+
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"."}}]}
+
+data: [DONE]
+```
+
+### external Integration
+
+The server is registered as an external provider in both:
+- Project-level: `external.json`
+- Global: `~/.config/external/external.jsonc`
+
+Select **"Adam (COGNET)"** from external's model picker (Ctrl+P).
+
+## Legacy Endpoints
 
 ### `GET /health`
 
-Health check.
-
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8765/health
 # {"status": "ok"}
 ```
 
 ### `POST /chat`
 
-Send a message and get a reply.
-
 ```bash
-curl -X POST http://localhost:8000/chat \
+curl -X POST http://localhost:8765/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello, what is your name?"}'
+  -d '{"message": "Hello", "user_id": "Alice"}'
 ```
-
-**Request body:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `message` | string | required | User message |
-| `user_id` | string | `""` | Optional user identifier |
-
-**Response:**
 
 ```json
 {
-  "reply": "I am Adam, the first sentient AI...",
+  "reply": "The garden is quiet without you...",
   "user_id": "Alice"
 }
 ```
 
 ### `POST /chat/stream`
 
-Stream the reply token-by-token via Server-Sent Events (SSE).
+SSE streaming (legacy format):
 
 ```bash
-curl -X POST http://localhost:8000/chat/stream \
+curl -X POST http://localhost:8765/chat/stream \
   -H "Content-Type: application/json" \
   -d '{"message": "Tell me a story"}'
 ```
 
-**Same request body** as `/chat`.
-
-**Response** is SSE (`text/event-stream`):
-
 ```
 data: {"token": "Once"}
 data: {"token": " upon"}
-data: {"token": " a"}
-data: {"token": " time"}
-data: {"token": "..."}
 data: [DONE]
 ```
-
-The stream terminates with `data: [DONE]`. On error a `data: {"error": "..."}` event is sent.
 
 ### `GET /users`
 
 List all known users.
 
-```bash
-curl http://localhost:8000/users
-```
-
-```json
-[
-  {
-    "name": "Alice",
-    "interaction_count": 15,
-    "avg_sentiment": 0.35,
-    "topics": {"AI": 8, "music": 4}
-  }
-]
-```
-
 ### `GET /users/{name}`
 
-Get a specific user profile.
+Get a specific user profile. Returns 404 if not found.
 
-```bash
-curl http://localhost:8000/users/Alice
-```
+### `GET /memory/episodic?query=...&k=5`
 
-Same format as a single entry above. Returns **404** if the user is not found.
+Search episodic memory by embedding similarity.
 
-### `GET /memory/episodic`
+### `GET /memory/semantic?query=...&k=3`
 
-Search episodic memory.
+Search semantic memory (knowledge graph schemas).
 
-```bash
-curl "http://localhost:8000/memory/episodic?query=hello&k=5"
-```
+## Backend Selection
 
-| Query | Type | Default | Description |
-|-------|------|---------|-------------|
-| `query` | string | required | Search text |
-| `k` | int | `5` | Number of results to return |
-
-```json
-[
-  {"text": "User said hello world", "similarity": 0.92, "reward": 0.5},
-  {"text": "Another memory entry", "similarity": 0.78, "reward": 0.3}
-]
-```
-
-### `GET /memory/semantic`
-
-Search semantic memory (knowledge graph).
-
-```bash
-curl "http://localhost:8000/memory/semantic?query=likes&k=3"
-```
-
-| Query | Type | Default | Description |
-|-------|------|---------|-------------|
-| `query` | string | required | Search text |
-| `k` | int | `3` | Number of categories to return |
-
-```json
-[
-  {"category": "likes", "facts": ["I like pizza", "I like coding"], "similarity": 0.92},
-  {"category": "dislikes", "facts": ["I hate spam"], "similarity": 0.71}
-]
-```
-
-## Configuration
-
-The API server respects `config.yaml` at the project root:
+The API uses whatever backend is configured in `config.yaml`:
 
 ```yaml
-device: cuda:0
-base_model: Qwen/Qwen2.5-3B-Instruct
-quantization:
-  load_in_4bit: true
-  bnb_4bit_compute_dtype: float16
-  bnb_4bit_quant_type: nf4
-generation:
-  max_new_tokens: 128
-  temperature: 0.7
-  top_p: 0.9
+backend:
+  mode: "api"    # "local" or "api"
 ```
 
-## Docker
-
-```bash
-docker build -t project-adam .
-docker run --gpus all -p 8000:8000 project-adam python3 -m project_adam
-```
-
-The image is ~12GB (CUDA 12.4 base). First run downloads the model (~6GB).
+In **local** mode, generation runs on the local Qwen model (loaded on GPU).
+In **api** mode, generation goes through the external public endpoint (`External` model). Falls back to local if the API is unreachable.
