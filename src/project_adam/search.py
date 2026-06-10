@@ -47,13 +47,27 @@ class WebSearch:
 
     def search(self, query):
         q = query.lower().strip()
+        cache_key = f"ddg:{q}"
         with self._lock:
-            if q in self.cache:
-                return self.cache[q]
-        result = self._search_ddgs(q) or self._search_wikipedia(q, max_results=3)
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+        result = self._search_ddgs(q)
         if result:
             with self._lock:
-                self.cache[q] = result
+                self.cache[cache_key] = result
+                self._save_cache()
+        return result
+
+    def search_knowledge(self, query, max_results=3):
+        q = query.lower().strip()
+        cache_key = f"wiki:{q}"
+        with self._lock:
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+        result = self._search_wikipedia(q, max_results)
+        if result:
+            with self._lock:
+                self.cache[cache_key] = result
                 self._save_cache()
         return result
 

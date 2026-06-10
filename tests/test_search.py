@@ -13,7 +13,7 @@ def search(tmp_path):
     return ws
 
 def test_cache_hit(search):
-    search.cache["hello world"] = "cached result"
+    search.cache["ddg:hello world"] = "cached result"
     result = search.search("Hello World")
     assert result == "cached result"
 
@@ -54,21 +54,21 @@ def test_load_cache_invalid_json(tmp_path, search):
     assert search.cache == {}
 
 @patch("project_adam.WebSearch._search_wikipedia")
-def test_fallback_to_wikipedia(mock_wiki, search):
+def test_no_fallback_to_wikipedia(mock_wiki, search):
     search.ddgs = None
     mock_wiki.return_value = "Wikipedia result"
     result = search.search("test query")
-    assert result == "Wikipedia result"
-    mock_wiki.assert_called_once()
+    assert result is None
+    mock_wiki.assert_not_called()
 
 @patch("project_adam.WebSearch._search_wikipedia")
-def test_ddgs_fallback_on_error(mock_wiki, search):
+def test_ddgs_returns_none_on_error(mock_wiki, search):
     mock_ddgs = MagicMock()
     mock_ddgs.text.side_effect = Exception("DDGS failed")
     search.ddgs = mock_ddgs
     mock_wiki.return_value = "Wikipedia fallback"
     result = search.search("test")
-    assert result == "Wikipedia fallback"
+    assert result is None
 
 @patch("project_adam.WebSearch._search_wikipedia")
 def test_both_fail_return_none(mock_wiki, search):
@@ -110,7 +110,36 @@ def test_searcher_init_no_ddgs(search):
     assert hasattr(search, "ddgs")
 
 def test_cache_key_lowercase(search):
-    search.cache["hello world"] = "result"
+    search.cache["ddg:hello world"] = "result"
     r1 = search.search("Hello World")
     r2 = search.search("hello world")
     assert r1 == r2 == "result"
+
+def test_search_knowledge_calls_wikipedia(search):
+    search.ddgs = None
+    search._search_wikipedia = MagicMock(return_value="Wiki result")
+    result = search.search_knowledge("some topic")
+    assert result == "Wiki result"
+    search._search_wikipedia.assert_called_once_with("some topic", 3)
+
+def test_search_knowledge_cache_hit(search):
+    search.cache["wiki:python"] = "cached wiki result"
+    search._search_wikipedia = MagicMock(return_value="new result")
+    result = search.search_knowledge("Python")
+    assert result == "cached wiki result"
+    search._search_wikipedia.assert_not_called()
+
+def test_search_knowledge_returns_none(search):
+    search._search_wikipedia = MagicMock(return_value=None)
+    result = search.search_knowledge("xyznonexistent12345")
+    assert result is None
+
+def test_search_and_knowledge_independent_cache(search):
+    search._search_ddgs = MagicMock(return_value="ddg result")
+    search._search_wikipedia = MagicMock(return_value="wiki result")
+    ddg_result = search.search("test query")
+    wiki_result = search.search_knowledge("test query")
+    assert ddg_result == "ddg result"
+    assert wiki_result == "wiki result"
+    assert "ddg:test query" in search.cache
+    assert "wiki:test query" in search.cache

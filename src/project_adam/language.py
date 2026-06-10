@@ -149,9 +149,14 @@ class LanguageInterface:
                  uncertainty=None):
         used_search = False
         web_context = None
-        if meta_action in ("ASK_FOR_HELP", "EXPLORE") and self.web_search is not None:
+        if self.web_search is not None:
             user_text = messages[-1]["content"] if messages else ""
-            result = self.web_search.search(user_text)
+            if meta_action == "ASK_FOR_HELP":
+                result = self.web_search.search_knowledge(user_text)
+            elif meta_action == "EXPLORE":
+                result = self.web_search.search(user_text)
+            else:
+                result = None
             if result:
                 used_search = True
                 web_context = result
