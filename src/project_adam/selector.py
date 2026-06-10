@@ -138,6 +138,7 @@ class ActionSelector:
         reply, used_search, web_context = self.language.generate(
             messages, meta_action=meta_action,
             temperature=temperature,
+            user_profile=user_profile,
             token_callback=token_callback,
         )
         return reply, used_search, web_context, meta_action

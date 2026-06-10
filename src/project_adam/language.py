@@ -123,7 +123,8 @@ class LanguageInterface:
         thread.join(timeout=30)
         return reply.strip()
 
-    def generate(self, messages, meta_action=None, token_callback=None, temperature=0.7):
+    def generate(self, messages, meta_action=None, token_callback=None,
+                 temperature=0.7, user_profile=None):
         used_search = False
         web_context = None
         if meta_action in ("ASK_FOR_HELP", "EXPLORE") and self.web_search is not None:
@@ -134,7 +135,7 @@ class LanguageInterface:
                 web_context = result
 
         msgs = list(messages)
-        system = self.build_prompt(None, web_context, web_context, meta_action)
+        system = self.build_prompt(user_profile, web_context, web_context, meta_action)
         if system:
             msgs.insert(0, {"role": "system", "content": system})
 
