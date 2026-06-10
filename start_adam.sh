@@ -6,10 +6,20 @@ HOST="${ADAM_HOST:-0.0.0.0}"
 PID_FILE="/tmp/adam_api.pid"
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-    echo "Adam server is already running (PID $(cat "$PID_FILE")) on port $(lsof -iTCP -sTCP:LISTEN -P -n -p "$(cat "$PID_FILE")" 2>/dev/null | awk '{print $9}' | tail -1 || echo "$PORT")"
-    echo "Open external and select the 'adam-cognet' model."
-    exit 0
+    OLD_PID=$(cat "$PID_FILE")
+    echo "Killing existing server (PID $OLD_PID)..."
+    kill "$OLD_PID" 2>/dev/null
+    sleep 2
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+        kill -9 "$OLD_PID" 2>/dev/null
+        sleep 1
+    fi
+    echo "Old server terminated."
 fi
+fuser -k "${PORT}/tcp" 2>/dev/null || true
+
+echo "Clearing GPU memory..."
+python3 -c "import torch; torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()" 2>/dev/null || true
 
 echo "Starting Project Adam API server on $HOST:$PORT ..."
 echo "Connect external: export LOCAL_ENDPOINT=http://localhost:$PORT/v1"
@@ -41,7 +51,7 @@ for i in $(seq 1 30); do
         echo ""
         echo "=== Ready ==="
         echo "Open external → Ctrl+P → select 'Adam (COGNET)'."
-        echo "Note: First response takes ~30-60s (model cold start). Subsequent responses are faster."
+        echo "Note: Running Qwen2.5-0.5B (fp16) — responses in ~2-5s."
         echo "Logs: tail -f /tmp/adam_api.log"
         exit 0
     fi
