@@ -138,6 +138,10 @@ class LanguageInterface:
                 msgs, temperature=temperature, token_callback=token_callback,
                 meta_action=meta_action,
             )
+            if not reply:
+                reply = self._local_generate(
+                    msgs, temperature=temperature, token_callback=token_callback,
+                )
         else:
             reply = self._local_generate(
                 msgs, temperature=temperature, token_callback=token_callback,

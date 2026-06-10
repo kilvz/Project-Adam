@@ -22,9 +22,9 @@ generation:
   top_p: 0.9
 
 backend:
-  mode: "local"                       # "local" or "api"
+  mode: "api"                         # "local" or "api"
   api:
-    endpoint: "https://api.openai.com/v1/chat/completions"
-    key: "${OPENAI_API_KEY}"          # env var, or inline string
-    model: "gpt-4o-mini"
-    timeout: 30
+    endpoint: "https://external.ai/zen/v1/chat/completions"
+    key: ""                           # external public endpoint, no key needed
+    model: "External"
+    timeout: 60
