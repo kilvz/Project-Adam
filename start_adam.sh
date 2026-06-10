@@ -34,9 +34,12 @@ for i in $(seq 1 30); do
         echo "API: http://localhost:$PORT"
         echo "Models: $(curl -s http://localhost:$PORT/v1/models | python3 -c "import sys,json; print(', '.join(m['id'] for m in json.load(sys.stdin)['data']))" 2>/dev/null || echo 'adam-cognet')"
         echo ""
-        echo "To use in external:"
-        echo "  export LOCAL_ENDPOINT=\"http://localhost:$PORT/v1\""
-        echo ""
+echo "To use in external:"
+echo "  Option 1 — auto (provider already configured in external.json):"
+echo "    Just select 'Adam (COGNET)' from the model picker (Ctrl+P)."
+echo "  Option 2 — manual:"
+echo "    export LOCAL_ENDPOINT=\"http://localhost:$PORT/v1\""
+echo ""
         echo "Logs: tail -f /tmp/adam_api.log"
         exit 0
     fi
