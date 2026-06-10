@@ -1,6 +1,8 @@
+import os
 import pytest
 import torch
 from unittest.mock import patch, MagicMock
+
 
 @pytest.fixture
 def mock_model():
@@ -68,7 +70,7 @@ def mock_persona():
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                         mock_model, mock_tokenizer, mock_persona, tmp_path, capsys):
@@ -76,8 +78,14 @@ def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -98,7 +106,7 @@ def test_full_chat_flow(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_with_question(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                              mock_model, mock_tokenizer, mock_persona, tmp_path):
@@ -106,8 +114,14 @@ def test_chat_with_question(mock_peft, mock_streamer_cls, mock_st, mock_at, mock
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -124,7 +138,7 @@ def test_chat_with_question(mock_peft, mock_streamer_cls, mock_st, mock_at, mock
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, tmp_path):
@@ -132,8 +146,14 @@ def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -145,13 +165,14 @@ def test_chat_extracts_facts(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     agent = CognitiveAgent()
 
     agent.chat("my name is Bob and I like pizza")
-    assert "name" in agent.semantic_memory.schemas
-    assert "likes" in agent.semantic_memory.schemas
+    categories = {s["category"] for s in agent.semantic_memory.schemas.values()}
+    assert "name" in categories
+    assert "likes" in categories
 
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, mock_persona, tmp_path):
@@ -159,8 +180,14 @@ def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -178,7 +205,7 @@ def test_chat_user_detection(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                                mock_model, mock_tokenizer, tmp_path):
@@ -186,8 +213,14 @@ def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mo
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -205,7 +238,7 @@ def test_chat_reward_tracking(mock_peft, mock_streamer_cls, mock_st, mock_at, mo
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                            mock_model, mock_tokenizer, tmp_path):
@@ -213,8 +246,14 @@ def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_a
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -233,7 +272,7 @@ def test_chat_sfl_updates(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_a
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                               mock_model, mock_tokenizer, tmp_path):
@@ -241,8 +280,14 @@ def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()
@@ -263,7 +308,7 @@ def test_chat_working_memory(mock_peft, mock_streamer_cls, mock_st, mock_at, moc
 @patch("project_adam.agent.AutoModelForCausalLM")
 @patch("project_adam.agent.AutoTokenizer")
 @patch("sentence_transformers.SentenceTransformer")
-@patch("project_adam.selector.TextIteratorStreamer")
+@patch("project_adam.language.TextIteratorStreamer")
 @patch("project_adam.agent.get_peft_model")
 def test_chat_episodic_memory_updated(mock_peft, mock_streamer_cls, mock_st, mock_at, mock_am,
                                        mock_model, mock_tokenizer, tmp_path):
@@ -271,8 +316,14 @@ def test_chat_episodic_memory_updated(mock_peft, mock_streamer_cls, mock_st, moc
     mock_at.from_pretrained.return_value = mock_tokenizer
     mock_peft.return_value = mock_model
 
+    import numpy as np
+    def _encode_side(text, **kw):
+        h = hash(str(text)) & 0xFFFF
+        rng = np.random.RandomState(h)
+        v = rng.randn(3)
+        return v / np.linalg.norm(v)
     mock_emb_model = MagicMock()
-    mock_emb_model.encode.return_value = __import__('numpy').array([0.1, 0.2, 0.3])
+    mock_emb_model.encode.side_effect = _encode_side
     mock_st.return_value = mock_emb_model
 
     fake_streamer = MagicMock()

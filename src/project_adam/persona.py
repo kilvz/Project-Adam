@@ -15,11 +15,15 @@ class Persona:
         self.voice_traits = ""
         self._load()
 
+    _MAX_SIZE = 28 * 1024
+
     def _load(self):
         if not self.path.exists():
             self.raw = ""
             return
         self.raw = self.path.read_text(encoding="utf-8")
+        if len(self.raw.encode("utf-8")) > self._MAX_SIZE:
+            self.raw = self.raw[:self._MAX_SIZE]
         self._extract_essence()
         self._extract_sections()
 
@@ -102,7 +106,7 @@ class Persona:
             if not stripped:
                 continue
             if in_section:
-                if stripped.startswith("## ") or stripped.startswith("**") and "(" in stripped:
+                if stripped.startswith("## ") or (stripped.startswith("**") and "(" in stripped):
                     break
                 if stripped.startswith("- "):
                     item = stripped[2:].strip().strip('"')

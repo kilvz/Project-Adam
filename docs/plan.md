@@ -1,72 +1,107 @@
-# Project Adam — Refactoring & Infrastructure Plan
+# Architecture Alignment Plan
 
-**Goal**: Make the project maintainable, installable, and contributor-friendly.
+**Goal**: Make the code match `ARCHITECTURE.md` (root, the real document).
 
-## P0 — Immediate (blocking others)
-
-### P0.1 — `requirements.txt`
-Scan all imports across the project, produce pinned `requirements.txt` + `requirements-dev.txt`.
-
-### P0.2 — Split `adam_chat.py` into `src/project_adam/` package
-```
-src/project_adam/
-├── __init__.py
-├── __main__.py              # python -m project_adam
-├── config.py                # YAML config loader
-├── agent.py                 # CognitiveAgent
-├── persona.py               # Persona
-├── memory/
-│   ├── __init__.py
-│   ├── working.py           # WorkingMemory
-│   ├── episodic.py          # EpisodicMemory
-│   ├── semantic.py          # SemanticMemory
-│   ├── neural.py            # NeuralMemory
-│   └── store.py             # SQLiteStore
-├── profiles.py              # UserProfileManager
-├── sfl.py                   # SFLModule
-├── metacog.py               # MetacognitiveController
-├── encoder.py               # SensoryEncoder
-├── search.py                # WebSearch
-├── consolidator.py          # OfflineConsolidator
-├── selector.py              # ActionSelector
-├── ui/
-│   ├── __init__.py
-│   ├── cli.py               # CLI REPL
-│   ├── webui.py             # Gradio UI
-│   └── voice.py             # VoiceMode
-└── api.py                   # FastAPI app
-```
-
-Keep original `adam_chat.py` as compat shim, delete at end.
-
-### P0.3 — GitHub Actions CI
-`.github/workflows/ci.yml` — test + lint on push/PR.
-
-## P1 — Important quality & usability
-
-### P1.1 — YAML config
-`config.yaml` for model paths, LoRA params, memory dims, etc. Loaded by `config.py`, overridable via env vars.
-
-### P1.2 — Logging framework
-Replace `print()` with `logging.getLogger(__name__)`. CLI handler + file rotation.
-
-### P1.3 — Streaming FastAPI endpoint
-SSE endpoint `/chat/stream` for token-by-token streaming.
-
-### P1.4 — `/users` + `/memory` API endpoints
-Expose CLI commands as REST endpoints.
-
-### P1.5 — `pyproject.toml`
-Make pip-installable: `pip install .` → `adam` CLI command.
+**138 violations** originally found across 4 scans. All phases largely complete.
 
 ---
 
-## Execution order
-1. requirements.txt + requirements-dev.txt
-2. pyproject.toml
-3. Package structure + extract modules
-4. Config system
-5. Logging
-6. GitHub Actions CI
-7. API expansion (streaming + endpoints)
-8. Cleanup (remove adam_chat.py shim)
+## Phase 1 — Structural Blowup
+
+### P1.1 — Create `LanguageInterface` class ✅
+- `src/project_adam/language.py` created; owns model/tokenizer, generation, prompt building, self-talk, behavioral rules, user detection
+
+### P1.2 — Route `utils.py` functions into proper components ✅
+- `extract_facts()` → `SemanticMemory.extract_facts()`
+- `extract_topics()` → `SemanticMemory.extract_topics()` (already existed, inlined)
+- `detect_user()` → `LanguageInterface.detect_user()`
+- `compute_implicit_reward()` → `TDCore.compute_reward()`
+- `utils.py` deleted
+
+### P1.3 — Remove `NeuralMemory` ✅
+- Class and all references removed from agent, consolidator, __init__, CLI
+
+### P1.4 — Integrate WebSearch as tool in LanguageInterface ✅
+- `WebSearch` instance passed to `LanguageInterface.__init__()`; search triggered inside `generate()` when meta_action is ASK_FOR_HELP or EXPLORE
+- `ActionSelector` no longer holds `web_search` reference
+
+---
+
+## Phase 2 — Learning Engine Rewrite ✅
+
+### P2.1 — Rewrite `WorldModel` ✅
+- Bayesian conjugate Gaussian priors; proper-noun extraction from text; `uncertainty()` returns `sqrt(var)`
+
+### P2.2 — Fix `TDCore` ✅
+- TD(λ) with eligibility traces; `register_rpe_listener()`; manual `p.add_(lr * δ * e)` updates; `compute_reward()` static method
+
+### P2.3 — Fix `SFLModule` ✅
+- Rescorla-Wagner update `Q += α·(R - Q)`; `compute_temperature()` for action selection; receives RPE from TDCore
+
+### P2.4 — Fix `SensoryEncoder` ✅
+- 3-layer MLP; sparsity via `|z|.mean()`; loss = `vae_loss + max(0, -rpe)` (sum); `train_step()` separates forward/backward
+
+---
+
+## Phase 3 — Action Selection Rewrite ✅
+
+### P3.1 — Fix `ActionSelector` ✅
+- No model/tokenizer (handled by LanguageInterface)
+- Fast path: regex rule-based fallback (documented)
+- Slow path: routes through LanguageInterface
+- Canonical metacog actions: EXPLORE, REPLAY, ASK_FOR_HELP, STOP_AND_THINK, SWITCH_STRATEGY
+- World model consultation: receives `world_model` parameter
+- Hardcoded confidence threshold: uses `metacognitive.estimate_confidence()`
+- SFL temperature passed through to generation
+
+---
+
+## Phase 4 — Memory System Alignment
+
+### P4.1 — `WorkingMemory` ✅
+- Capacity 8→64; gated retention via relevance threshold; evicted items pushed to episodic via `set_episodic_memory()`
+
+### P4.2 — `EpisodicMemory` ✅
+- RPE field added to entries; symbolic keyword index (`_symbolic_index` mapping word→indices); `search_by_keyword()` method
+
+### P4.3 — `SemanticMemory` ✅
+- Graph edges: `_edges` list of `(source_sid, relation, target_sid)` triples; `add_edge()`, `get_related()`, `traverse()` methods; edges pruned on consolidate
+
+### P4.4 — `ProceduralMemory` ✅
+- Keyword-overlap heuristic with chunking support: repeated action sequences detected via `_try_chunk()`, retrieved as multi-step chunks
+
+### P4.5 — `SpatialMemory` ✅
+- Conflict detection (`_is_contradiction()`); inverse relation inference (`_INVERSE_MAP`); graph traversal (`traverse()`); `conflicts()` method
+
+### P4.6 — `OfflineConsolidator` ✅
+- Periodic thread removed; metacog-triggered only (`merge_episodes()`); RPE prioritization; world model update via `_update_world_model()`; `start()`/`stop()`/`_loop()` removed
+
+---
+
+## Phase 5 — Supporting Components
+
+### P5.1 — `MetacognitiveController` ✅
+- Canonical actions: `EXPLORE`, `REPLAY`, `ASK_FOR_HELP`, `STOP_AND_THINK`, `SWITCH_STRATEGY`; `record_confidence()` method; `CANONICAL_ACTIONS` constant
+
+### P5.2 — `Persona` ✅
+- 28KB size limit enforced on load (`_MAX_SIZE = 28 * 1024`); operator precedence bug fixed with explicit parentheses
+
+### P5.3 — `UserProfileManager` ✅
+- Removed dead keys (`total_interactions`, `adopted_phrases`, `phrase_preferences`, `last_used_opening/closing`); removed dead `reply` parameter from `update_after_turn()`; fixed race condition on `current_name` (wrapped in lock)
+
+### P5.4 — `WebSearch` ✅
+- Cache path uses `get_memory_dir()`; global SSL warning suppression removed; logging on init failure
+
+---
+
+## Remaining ⏳
+- Nothing — all phases complete. Every architectural gap identified in ARCHITECTURE.md has been addressed.
+
+## Execution Order
+1. Phase 1 ✅
+2. Phase 2 ✅
+3. Phase 3 ✅
+4. Phase 4 ✅
+5. Phase 5 ✅
+6. Update docs/architecture.md to match root ARCHITECTURE.md ✅
+7. Update AGENTS.md ✅

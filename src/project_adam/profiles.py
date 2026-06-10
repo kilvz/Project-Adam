@@ -26,16 +26,11 @@ class UserProfileManager:
                 self.profiles[name] = {
                     "name": name,
                     "interaction_count": 0,
-                    "total_interactions": 0,
                     "avg_sentiment": 0.0,
                     "sentiment_history": [],
                     "topics": {},
-                    "adopted_phrases": {},
                     "rule_weights": {},
                     "custom_rules": [],
-                    "phrase_preferences": {"openings": {}, "closings": {}},
-                    "last_used_opening": None,
-                    "last_used_closing": None,
                     "first_seen": time.time(),
                     "last_seen": time.time(),
                 }
@@ -43,18 +38,19 @@ class UserProfileManager:
             return self.profiles[name]
 
     def set_current(self, name):
-        self.current_name = name
+        with self._lock:
+            self.current_name = name
         return self.get_or_create(name)
 
     def get_current(self):
-        if self.current_name and self.current_name in self.profiles:
-            return self.profiles[self.current_name]
+        with self._lock:
+            if self.current_name and self.current_name in self.profiles:
+                return self.profiles[self.current_name]
         return None
 
-    def update_after_turn(self, name, user_input, reply, reward, topics):
+    def update_after_turn(self, name, user_input, reward, topics):
         profile = self.get_or_create(name)
         profile["interaction_count"] += 1
-        profile["total_interactions"] += 1
         profile["last_seen"] = time.time()
         profile["sentiment_history"].append(reward)
         if len(profile["sentiment_history"]) > 20:
@@ -65,12 +61,6 @@ class UserProfileManager:
         )
         for topic in topics:
             profile["topics"][topic] = profile["topics"].get(topic, 0) + 1
-        words = user_input.lower().split()
-        for i in range(len(words) - 2):
-            phrase = " ".join(words[i : i + 3])
-            profile["adopted_phrases"].setdefault(phrase, {"count": 0, "reward_sum": 0.0})
-            profile["adopted_phrases"][phrase]["count"] += 1
-            profile["adopted_phrases"][phrase]["reward_sum"] += reward
 
     def list_users(self):
         with self._lock:

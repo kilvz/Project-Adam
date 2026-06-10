@@ -47,29 +47,28 @@ def test_act_proceed_high_confidence(meta):
     action = meta.act(confidence=0.9, uncertainty=0.1)
     assert action == "proceed"
 
-def test_act_search_moderate_confidence(meta):
+def test_act_switch_strategy_moderate_confidence(meta):
     action = meta.act(confidence=0.3, uncertainty=0.5)
-    assert action == "search"
+    assert action == "SWITCH_STRATEGY"
 
-def test_act_clarify_low_confidence(meta):
+def test_act_stop_and_think_low_confidence(meta):
     action = meta.act(confidence=0.15, uncertainty=0.8)
-    assert action == "clarify"
+    assert action == "STOP_AND_THINK"
 
 def test_act_replay_after_consecutive_low(meta):
     for _ in range(6):
         meta.act(confidence=0.2, uncertainty=0.7)
-    # After 6 consecutive low, should be "replay"
-    assert meta.last_action == "replay"
+    assert meta.last_action == "REPLAY"
 
 def test_act_explore_with_low_sfl(meta):
     meta.consecutive_low_confidence = 3
     action = meta.act(confidence=0.3, uncertainty=0.5, sfl_q=-0.5)
-    assert action == "explore"
+    assert action == "EXPLORE"
 
-def test_act_explore_high_sfl_no_trigger(meta):
+def test_act_ask_for_help_very_low(meta):
     meta.consecutive_low_confidence = 0
-    action = meta.act(confidence=0.3, uncertainty=0.5, sfl_q=0.5)
-    assert action == "search"
+    action = meta.act(confidence=0.2, uncertainty=0.5, sfl_q=0.5)
+    assert action == "ASK_FOR_HELP"
 
 def test_record_outcome(meta):
     meta.record_outcome(used_slow_path=False)
