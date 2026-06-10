@@ -96,7 +96,6 @@ def load_config(path=None):
     b = cfg.get("backend", {})
     if b:
         mode = b.get("mode", "local")
-        BACKEND_CONFIG["mode"] = mode
         api = b.get("api", {})
         if api:
             key_raw = api.get("key", "")
@@ -109,6 +108,9 @@ def load_config(path=None):
                 "model": api.get("model", BACKEND_CONFIG["api"]["model"]),
                 "timeout": api.get("timeout", BACKEND_CONFIG["api"]["timeout"]),
             })
+        if mode == "api" and not BACKEND_CONFIG["api"]["key"]:
+            mode = "local"
+        BACKEND_CONFIG["mode"] = mode
 
     _CONFIG_LOADED = True
 

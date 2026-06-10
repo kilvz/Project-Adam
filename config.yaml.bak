@@ -22,9 +22,9 @@ generation:
   top_p: 0.9
 
 backend:
-  mode: "api"                         # "local" or "api"
+  mode: "local"                       # "local" or "api"
   api:
-    endpoint: "https://opencode.ai/zen/v1/chat/completions"
-    key: ""                           # opencode public endpoint, no key needed
-    model: "big-pickle"
-    timeout: 60
+    endpoint: "https://api.openai.com/v1/chat/completions"
+    key: "${OPENAI_API_KEY}"          # env var, or inline string
+    model: "gpt-4o-mini"
+    timeout: 30
