@@ -22,6 +22,13 @@ if [ -f "$PID_FILE" ]; then
 fi
 fuser -k "${PORT}/tcp" 2>/dev/null || true
 
+echo "Detecting hardware..."
+python3 -c "
+import sys; sys.path.insert(0, 'src')
+from project_adam.config import HARDWARE_TIER, GPU_VRAM_GB, GPU_COMPUTE_CAP
+print(f'Tier: {HARDWARE_TIER} | VRAM: {GPU_VRAM_GB}GB | CC: {GPU_COMPUTE_CAP[0]}.{GPU_COMPUTE_CAP[1]}')
+" 2>/dev/null
+
 echo "Clearing GPU memory..."
 GPU_BEFORE=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null | cut -d' ' -f1)
 python3 -c "
@@ -59,8 +66,9 @@ echo -n "Waiting for server"
 for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT/v1/models" > /dev/null 2>&1; then
         echo ""
+        HW_TIER=$(python3 -c "import sys; sys.path.insert(0,'src'); from project_adam.config import HARDWARE_TIER, GPU_VRAM_GB; print(f'{HARDWARE_TIER} ({GPU_VRAM_GB}GB)')" 2>/dev/null || echo "unknown")
         echo "=== Project Adam is ready ==="
-        echo "Server PID: $PID | API: http://localhost:$PORT"
+        echo "Server PID: $PID | API: http://localhost:$PORT | Hardware: $HW_TIER"
         echo "Models: $(curl -s http://localhost:$PORT/v1/models | python3 -c "import sys,json; print(', '.join(m['id'] for m in json.load(sys.stdin)['data']))" 2>/dev/null || echo 'adam-cognet')"
         echo ""
         echo "Preloading model (first request loads it — may take ~15s)..."

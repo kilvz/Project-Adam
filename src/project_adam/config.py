@@ -31,12 +31,44 @@ GENERATION_CONFIG = {
 BACKEND_CONFIG = {
     "mode": "local",
     "api": {
-        "endpoint": "https://api.openai.com/v1/chat/completions",
+        "endpoint": "https://external.ai/zen/v1/chat/completions",
         "key": "",
-        "model": "gpt-4o-mini",
-        "timeout": 30,
+        "model": "External",
+        "timeout": 15,
     },
 }
+
+# ── Hardware detection ────────────────────────────────────────────────
+HARDWARE_TIER = "unknown"  # "low", "mid", "high"
+GPU_VRAM_GB = 0
+GPU_COMPUTE_CAP = (0, 0)
+
+def _detect_hardware():
+    global HARDWARE_TIER, GPU_VRAM_GB, GPU_COMPUTE_CAP
+    if not torch.cuda.is_available():
+        HARDWARE_TIER = "low"
+        GPU_VRAM_GB = 0
+        GPU_COMPUTE_CAP = (0, 0)
+        return
+
+    try:
+        GPU_VRAM_GB = round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1)
+        GPU_COMPUTE_CAP = (
+            torch.cuda.get_device_capability(0)[0],
+            torch.cuda.get_device_capability(0)[1],
+        )
+        cc_major, cc_minor = GPU_COMPUTE_CAP
+
+        if GPU_VRAM_GB >= 24 and cc_major >= 8:
+            HARDWARE_TIER = "high"
+        elif GPU_VRAM_GB >= 8 and cc_major >= 7:
+            HARDWARE_TIER = "mid"
+        else:
+            HARDWARE_TIER = "low"
+    except Exception:
+        HARDWARE_TIER = "low"
+
+_detect_hardware()
 
 _memory_dir_override = None
 _CONFIG_LOADED = False
@@ -95,7 +127,7 @@ def load_config(path=None):
 
     b = cfg.get("backend", {})
     if b:
-        mode = b.get("mode", "local")
+        mode = b.get("mode", "auto")
         api = b.get("api", {})
         if api:
             key_raw = api.get("key", "")
@@ -108,8 +140,12 @@ def load_config(path=None):
                 "model": api.get("model", BACKEND_CONFIG["api"]["model"]),
                 "timeout": api.get("timeout", BACKEND_CONFIG["api"]["timeout"]),
             })
-        if mode == "api" and not BACKEND_CONFIG["api"]["key"]:
-            mode = "local"
+
+        if mode == "auto":
+            mode = "api" if HARDWARE_TIER == "low" else "local"
+        elif mode == "api" and not BACKEND_CONFIG["api"]["key"] and HARDWARE_TIER == "low":
+            mode = "local" if HARDWARE_TIER == "low" else "api"
+
         BACKEND_CONFIG["mode"] = mode
 
     _CONFIG_LOADED = True

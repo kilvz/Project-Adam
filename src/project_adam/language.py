@@ -4,7 +4,7 @@ import torch
 import threading
 import re
 from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
-from .config import BACKEND_CONFIG
+from .config import BACKEND_CONFIG, HARDWARE_TIER
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,17 @@ class LanguageInterface:
         self.world_model = world_model
         self.backend = backend or BACKEND_CONFIG.get("mode", "local")
         self.working_memory = working_memory
+        self._encdec_model = None
+        self._encdec_tokenizer = None
+        if HARDWARE_TIER == "high":
+            try:
+                from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+                self._encdec_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
+                self._encdec_model = AutoModelForSeq2SeqLM.from_pretrained(
+                    "google/flan-t5-large", torch_dtype=torch.float16, device_map="auto",
+                )
+            except Exception:
+                pass
 
     def _api_generate(self, messages, temperature=0.7, token_callback=None,
                       meta_action=None):
@@ -84,6 +95,15 @@ class LanguageInterface:
     def _local_generate(self, messages, temperature=0.7, token_callback=None):
         if self.model is None:
             return ""
+        if self._encdec_model is not None and self._encdec_tokenizer is not None:
+            user_text = messages[-1]["content"] if messages else ""
+            enc = self._encdec_tokenizer(user_text, return_tensors="pt",
+                                         truncation=True, max_length=256).to(self._encdec_model.device)
+            with torch.no_grad():
+                out = self._encdec_model.generate(**enc, max_new_tokens=128,
+                                                  temperature=temperature, do_sample=True)
+            return self._encdec_tokenizer.decode(out[0], skip_special_tokens=True).strip()
+
         system = self.build_prompt(None, None, None, None)
         if system:
             messages.insert(0, {"role": "system", "content": system})
@@ -241,6 +261,11 @@ class LanguageInterface:
             with torch.no_grad():
                 outputs = self.model(**enc, labels=enc["input_ids"])
                 loss = outputs.loss.item()
+            if HARDWARE_TIER in ("mid", "high"):
+                seq_len = enc["input_ids"].shape[-1]
+                log_prob = -loss * seq_len
+                norm_log_prob = log_prob / max(seq_len, 1)
+                return max(0.1, min(1.0, 0.5 + norm_log_prob * 0.1))
             ppl = min(100.0, max(1.0, float(torch.exp(torch.tensor(loss)))))
             return max(0.1, 1.0 - (ppl / 100.0))
         except Exception:

@@ -20,7 +20,7 @@ generation:
   top_p: 0.9
 
 backend:
-  mode: "api"
+  mode: "auto"                        # "auto", "local", or "api"
   api:
     endpoint: "https://external.ai/zen/v1/chat/completions"
     key: ""

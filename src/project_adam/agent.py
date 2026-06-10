@@ -6,7 +6,8 @@ from peft import LoraConfig, get_peft_model
 
 import logging
 from .config import (BASE_MODEL, MODEL_3B, MODEL_1_5B, MODEL_0_5B,
-                     MODEL_CHAIN, _4BIT_CONFIG, DEVICE, get_memory_dir)
+                     MODEL_CHAIN, _4BIT_CONFIG, DEVICE, HARDWARE_TIER,
+                     get_memory_dir)
 
 logger = logging.getLogger(__name__)
 from .persona import Persona
@@ -69,12 +70,14 @@ class CognitiveAgent:
             logger.info("Loaded %s: %s params in %ds", model_label, f"{sum(p.numel() for p in self.model.parameters()):,}", dt)
             model_dtype = self.model.dtype
             enc_input_dim = 384
-            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
+            ht = HARDWARE_TIER
+            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype, hardware_tier=ht).to(DEVICE)
         else:
             logger.warning("No local model loaded — using API backend only")
             model_dtype = torch.float32
             enc_input_dim = 384
-            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype).to(DEVICE)
+            ht = HARDWARE_TIER
+            self.sensory_encoder = SensoryEncoder(input_dim=enc_input_dim, latent_dim=64, dtype=model_dtype, hardware_tier=ht).to(DEVICE)
 
         self.world_model = WorldModel()
         self.web_search = WebSearch()

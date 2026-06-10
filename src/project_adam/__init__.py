@@ -1,6 +1,7 @@
 from .config import (DEVICE, MODEL_3B, MODEL_1_5B, MODEL_0_5B, BASE_MODEL,
                      MODEL_CHAIN, _4BIT_CONFIG, PERSONA_PATH, GENERATION_CONFIG,
-                     BACKEND_CONFIG, get_memory_dir, set_memory_dir,
+                     BACKEND_CONFIG, HARDWARE_TIER, GPU_VRAM_GB, GPU_COMPUTE_CAP,
+                     get_memory_dir, set_memory_dir,
                      load_config, setup_logging)
 load_config()
 from .persona import Persona
@@ -25,7 +26,8 @@ from .agent import CognitiveAgent
 __all__ = [
     "DEVICE", "MODEL_3B", "MODEL_1_5B", "MODEL_0_5B", "BASE_MODEL",
     "MODEL_CHAIN", "_4BIT_CONFIG", "PERSONA_PATH", "GENERATION_CONFIG",
-    "BACKEND_CONFIG", "get_memory_dir", "set_memory_dir",
+    "BACKEND_CONFIG", "HARDWARE_TIER", "GPU_VRAM_GB", "GPU_COMPUTE_CAP",
+    "get_memory_dir", "set_memory_dir",
     "load_config", "setup_logging",
     "Persona", "UserProfileManager",
     "SensoryEncoder", "VisionEncoder", "AudioEncoder",

@@ -37,11 +37,13 @@ class AudioEncoder(nn.Module):
 
 
 class SensoryEncoder(nn.Module):
-    def __init__(self, input_dim=896, latent_dim=128, beta=0.001, dtype=torch.float32):
+    def __init__(self, input_dim=896, latent_dim=128, beta=0.001, dtype=torch.float32,
+                 hardware_tier="low"):
         super().__init__()
         self.beta = beta
         self.sparsity_weight = 1e-3
         self.latent_dim = latent_dim
+        self.hardware_tier = hardware_tier
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 256, dtype=dtype),
             nn.ReLU(),
@@ -93,7 +95,11 @@ class SensoryEncoder(nn.Module):
     def compute_loss(self, x, rpe=0.0):
         z, vae_loss_val = self.forward(x)
         complexity = vae_loss_val
-        task_loss = -rpe * 0.1
+        if self.hardware_tier in ("mid", "high"):
+            task_weight = 1.0
+        else:
+            task_weight = 0.1
+        task_loss = -rpe * task_weight
         return complexity + task_loss, z
 
     def train_step(self, x, rpe=0.0):
