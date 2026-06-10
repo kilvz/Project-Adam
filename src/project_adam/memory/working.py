@@ -1,15 +1,18 @@
 import time
 import threading
+import numpy as np
 
 
 class WorkingMemory:
-    def __init__(self, max_turns=64, relevance_threshold=0.3, embedder=None,
-                 episodic_memory=None, decay_tau=300.0):
+    def __init__(self, max_turns=64, max_tokens=2048, relevance_threshold=0.3,
+                 embedder=None, episodic_memory=None, decay_tau=300.0):
         self.max_turns = max_turns
+        self.max_tokens = max_tokens
         self.relevance_threshold = relevance_threshold
         self.turns = []
         self.relevance_scores = []
         self._timestamps = []
+        self._total_tokens = 0
         self._embedder = embedder
         self._episodic = episodic_memory
         self._lock = threading.Lock()
@@ -48,8 +51,11 @@ class WorkingMemory:
             emb = self._embedder.encode([content], convert_to_numpy=True)[0]
             context_texts = [t["content"] for t in self.turns[-4:]]
             context_embs = self._embedder.encode(context_texts, convert_to_numpy=True)
-            sims = context_embs @ emb
-            return float(max(sims))
+            scores = context_embs @ emb
+            d_k = float(emb.shape[0]) if emb.ndim > 0 else 1.0
+            attn_weights = np.exp(scores / np.sqrt(max(d_k, 1.0)))
+            attn_weights = attn_weights / (attn_weights.sum() + 1e-8)
+            return float(attn_weights.max())
         except Exception:
             return 1.0
 
@@ -59,11 +65,14 @@ class WorkingMemory:
         if relevance < self.relevance_threshold and self._episodic is not None:
             self._episodic.add(f"[wm-gate] {role}: {content[:200]}", reward=0.1)
             return
+        n_tokens = len(content.split())
         with self._lock:
             self.turns.append({"role": role, "content": content})
             self.relevance_scores.append(relevance)
             self._timestamps.append(now)
-            if len(self.turns) > self.max_turns:
+            self._total_tokens += n_tokens
+            while (len(self.turns) > self.max_turns or
+                   self._total_tokens > self.max_tokens) and self.turns:
                 decayed = []
                 for i in range(len(self.relevance_scores)):
                     age = now - self._timestamps[i]
@@ -71,6 +80,7 @@ class WorkingMemory:
                     decayed.append(self.relevance_scores[i] * decay)
                 min_idx = min(range(len(decayed)), key=lambda i: decayed[i])
                 evicted = self.turns.pop(min_idx)
+                self._total_tokens -= len(evicted.get("content", "").split())
                 self.relevance_scores.pop(min_idx)
                 self._timestamps.pop(min_idx)
                 if self._episodic is not None:

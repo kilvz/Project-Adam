@@ -50,7 +50,7 @@ class OfflineConsolidator:
                         used.add(j)
                 clusters.append(group[0])
             for phrase in clusters[:5]:
-                self.episodic.add(f"[pattern] {phrase[:100]}", reward=0.5)
+                self.semantic.add("pattern", phrase[:200])
         except Exception:
             pass
 
