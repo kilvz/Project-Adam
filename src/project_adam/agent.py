@@ -151,8 +151,8 @@ class CognitiveAgent:
             self.semantic_memory.add(cat, fact)
             self.episodic_memory.add(fact, reward=0.7)
 
-        self.world_model.observe_from_text(user_input,
-                                           self.current_profile.get("avg_sentiment", 0.0) if self.current_profile else 0.0)
+        speaker_conf = self.language.compute_utterance_likeness(user_input)
+        self.world_model.observe_from_text(user_input, speaker_conf)
 
         spatial_rels = self.spatial_memory.extract_from_text(user_input)
         for rel in spatial_rels:

@@ -80,7 +80,8 @@ class LanguageInterface:
         thread.join(timeout=30)
         reply = reply.strip()
         if self.world_model is not None and reply:
-            self.world_model.observe_from_text(reply, 0.5)
+            speaker_conf = self.compute_utterance_likeness(reply)
+            self.world_model.observe_from_text(reply, speaker_conf)
         return reply, used_search, web_context
 
     def build_prompt(self, user_profile, memory_context, web_context, meta_action):
@@ -141,6 +142,19 @@ class LanguageInterface:
                 w *= 0.95
             profile["rule_weights"][i] = max(0.1, min(3.0, w))
         return reply
+
+    def compute_utterance_likeness(self, text):
+        if not text or len(text) < 5:
+            return 1.0
+        try:
+            enc = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(self.model.device)
+            with torch.no_grad():
+                outputs = self.model(**enc, labels=enc["input_ids"])
+                loss = outputs.loss.item()
+            ppl = min(100.0, max(1.0, float(torch.exp(torch.tensor(loss)))))
+            return max(0.1, 1.0 - (ppl / 100.0))
+        except Exception:
+            return 0.5
 
     def detect_user(self, text, known_names):
         lower = text.lower()

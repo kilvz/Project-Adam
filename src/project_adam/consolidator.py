@@ -61,7 +61,7 @@ class OfflineConsolidator:
         for ep in high_reward[-10:]:
             text = ep.get("text", "")
             if len(text) > 10:
-                self.world_model.observe_from_text(text, ep.get("reward", 0))
+                self.world_model.observe_from_text(text, confidence=ep.get("reward", 0))
 
     def _td_replay(self, episodes):
         if self.td_core is None:
