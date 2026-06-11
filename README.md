@@ -122,7 +122,7 @@ Qwen2.5-3B at 4-bit NF4 (~2.1GB VRAM). Falls back to 1.5B → 0.5B if unavailabl
 
 ### Remote API
 
-`<remoteapiendpoint>/v1/chat/completions` with `ai-model`. API key required. Falls back to local model on failure. In `auto` mode, low-tier hardware automatically uses the API.
+`<remoteapibackend>/v1/chat/completions` with `ai-model`. API key required. Falls back to local model on failure. In `auto` mode, low-tier hardware automatically uses the API.
 
 ### Training
 
