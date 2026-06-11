@@ -8,7 +8,7 @@
 
 > **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md`, with 136 passing tests. No stubs, no planned sections — the code is the architecture.
 
-Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses the external public API endpoint (`External` model) for generation while continuing to train the local model via online distillation.
+Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses remote API endpoint for generation while continuing to train the local model via online distillation.
 
 ## Features
 
