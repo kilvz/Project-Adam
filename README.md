@@ -70,11 +70,11 @@ curl -X POST http://localhost:8765/v1/chat/completions \
   -d '{"model":"adam-cognet","messages":[{"role":"user","content":"Hello"}],"stream":false}'
 ```
 
-### Use with external
+### Use with openai compatible chat UI
 
 ```bash
 export LOCAL_ENDPOINT="http://localhost:8765/v1"
-# external detects adam-cognet model automatically
+
 ```
 
 ### Use remote API backend
@@ -84,9 +84,9 @@ Edit `config.yaml`:
 backend:
   mode: "auto"  # auto-detects: low hardware → API, mid/high → local
   api:
-    endpoint: "https://external.ai/zen/v1/chat/completions"
+    endpoint: "https://<remotebackend>/v1/chat/completions"
     key: ""                    # public endpoint, no key needed
-    model: "External"
+    model: "ai-model"
 ```
 
 ## Architecture
