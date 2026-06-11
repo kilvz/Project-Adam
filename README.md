@@ -85,7 +85,7 @@ backend:
   mode: "auto"  # auto-detects: low hardware → API, mid/high → local
   api:
     endpoint: "https://<remotebackend>/v1/chat/completions"
-    key: ""                    # public endpoint, no key needed
+    key: ""                    # endpointkey
     model: "ai-model"
 ```
 
