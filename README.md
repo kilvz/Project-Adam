@@ -35,7 +35,7 @@ Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entire
 ### 🚀 User-Facing
 
 - **Per-user adaptation** — User detection, profiles, per-user LoRA adapters at `agent_memory/adapters/{user}/`
-- **Dual-backend generation** — Local Qwen (auto-detected hardware tier) or remote API (`external.ai/zen` / OpenAI-compatible)
+- **Dual-backend generation** — Local Qwen (auto-detected hardware tier) or remote API (OpenAI-compatible)
 - **Online distillation** — Remote API responses train the local LoRA model, no separate pipeline needed
 - **Hardware auto-detection** — Low tier (≤4GB Pascal) → API mode; Mid (8GB+ Volta) / High (24GB+ Ampere) → local mode
 - **Streaming output** — Tokens appear one-by-one
