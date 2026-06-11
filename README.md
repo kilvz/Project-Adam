@@ -84,7 +84,7 @@ Edit `config.yaml`:
 backend:
   mode: "auto"  # auto-detects: low hardware → API, mid/high → local
   api:
-    endpoint: "https://<remotebackend>/v1/chat/completions"
+    endpoint: "https://<remoteapibackend>/v1/chat/completions"
     key: ""                    # endpointkey
     model: "ai-model"
 ```
@@ -143,9 +143,9 @@ model_chain:
 backend:
   mode: "auto"                     # "auto", "local", or "api"
   api:
-    endpoint: "https://external.ai/zen/v1/chat/completions"
-    key: "${OPENAI_API_KEY}"
-    model: "External"
+    endpoint: "https://<remoteapibackend>/v1/chat/completions"
+    key: "${API_KEY}"
+    model: "ai-model"
     timeout: 60
 
 generation:
