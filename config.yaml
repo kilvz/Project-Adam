@@ -2,9 +2,9 @@
 # See docs/setup.md for a full reference.
 
 device: cuda
-base_model: Qwen/Qwen2.5-1.5B-Instruct
+base_model: Qwen/Qwen2.5-1.5B-Instruct    # HuggingFace name or local path (e.g. "models/my-model")
 model_chain:
-  - Qwen/Qwen2.5-1.5B-Instruct
+  - Qwen/Qwen2.5-1.5B-Instruct            # Fallback chain for HuggingFace models
 memory_dir: agent_memory
 persona_path: personas/adam.md
 

@@ -21,6 +21,8 @@ pip install -r requirements-dev.txt
 ```
 Project-Adam/
 ├── architecture.md              # COGNET architecture specification
+├── models/                       # Local model files (see README.md inside)
+│   └── README.md                 # How to add custom models
 ├── config.yaml                  # User-editable config
 ├── start_adam.sh                # Launch script with auto-GPU-cleanup
 ├── personas/
