@@ -123,7 +123,7 @@ Include at least 5 dialogue examples covering different scenarios (greeting, kno
 """
 
 _SYNTHESIS_TEMPLATE = """Synthesize these {n} persona drafts into one unified persona markdown file.
-Combine the best elements from each draft. Follow the persona-studio output structure exactly:
+Combine the best elements from each draft. Follow the persona output structure exactly:
 - # Persona: [name] header
 - ## Output Summary with bullet list
 - ### level-3 headings for sections 0-10

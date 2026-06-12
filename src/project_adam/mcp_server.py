@@ -330,7 +330,7 @@ def adam_generate_persona(name: str, description: str) -> dict:
     """Generate a new persona via the teacher API.
 
     Creates N variations with different temperatures, then synthesizes
-    them into one final persona saved to persona-studio/personas/{name}/.
+    them into one final persona saved to personas/{name}/.
 
     Args:
         name: Persona name (used as the filename).

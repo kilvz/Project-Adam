@@ -28,7 +28,7 @@ def _get_4bit_config():
 def get_4bit_config():
     return _get_4bit_config()
 
-PERSONA_PATH = Path("persona-studio/personas/adam.md")
+PERSONA_PATH = Path("personas/adam.md")
 
 GENERATION_CONFIG = {
     "max_new_tokens": 128,

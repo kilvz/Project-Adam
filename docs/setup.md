@@ -80,7 +80,7 @@ base_model: Qwen/Qwen2.5-1.5B-Instruct
 model_chain:
   - Qwen/Qwen2.5-1.5B-Instruct
 memory_dir: agent_memory
-persona_path: persona-studio/personas/adam.md
+persona_path: personas/adam.md
 quantization:
   load_in_4bit: true
   bnb_4bit_compute_dtype: torch.float16

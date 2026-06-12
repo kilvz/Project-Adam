@@ -92,4 +92,4 @@ Local model still loads for LoRA training (online distillation).
 | SQLite database | `agent_memory/memory.db` |
 | LoRA adapters | `agent_memory/adapters/{user}/` |
 | Search cache | `agent_memory/search_cache.json` |
-| Persona file | `persona-studio/personas/adam.md` |
+| Persona file | `personas/adam.md` |
