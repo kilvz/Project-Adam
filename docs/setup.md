@@ -3,7 +3,7 @@
 ## Requirements
 
 - **OS**: Linux (tested on Ubuntu 22.04+)
-- **GPU**: NVIDIA with 4GB+ VRAM, CUDA 13.0 (works on GTX 1050 Pascal)
+- **GPU**: NVIDIA with 4GB+ VRAM (minimum), 8GB+ VRAM recommended
 - **RAM**: 8GB+
 - **Disk**: 6GB+ for model + runtime data
 - **Python**: 3.10+
@@ -23,7 +23,6 @@ Project-Adam/
 ├── architecture.md              # COGNET architecture specification
 ├── config.yaml                  # User-editable config
 ├── start_adam.sh                # Launch script with auto-GPU-cleanup
-├── external.json                # Remote API provider config
 ├── personas/
 │   └── adam.md                  # Default persona file
 ├── src/project_adam/
@@ -66,7 +65,7 @@ Project-Adam/
 
 ```bash
 python3 -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-# True NVIDIA GeForce GTX 1050
+# True  (e.g. NVIDIA GeForce GTX 1650)
 ```
 
 If CUDA is not available:

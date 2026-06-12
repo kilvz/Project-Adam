@@ -4,7 +4,7 @@
 
 **Q: Why is Adam so slow locally?**
 
-A: GTX 1050 (Pascal, sm_61) doesn't support efficient 4-bit dequantization kernels. Use `backend.mode: api` in config.yaml for fast responses via a remote API endpoint.
+A: Low-end NVIDIA GPUs (Pascal, ≤4GB) don't support efficient 4-bit dequantization kernels. Use `backend.mode: api` in config.yaml for fast responses via a remote API endpoint.
 
 **Q: Why does Adam sound like an assistant?**
 

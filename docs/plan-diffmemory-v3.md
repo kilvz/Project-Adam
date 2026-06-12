@@ -1,177 +1,151 @@
-# DiffMemory v3 — Titans/MIRAS Alignment Roadmap
+# DiffMemory v3 — Paper-Aligned Upgrades
 
-## Current alignment: ~80%
-
-Four improvements to close the gap with Google's Titans/MIRAS research.
+Based on Titans (arXiv:2501.00663) and MIRAS (arXiv:2504.13173).
 
 ---
 
-## 1. Gradient Magnitude Surprise
+## Upgrade 1: Gradient Magnitude Surprise
+
+**Paper**: Titans §3.2, eq. 9-10 — "surprise metric = gradient norm"
 
 **Current**: `surprise = ‖MLP(x) - x‖²` — reconstruction error, forward pass only.
 
-**Target**: `surprise = ‖∂loss/∂θ‖` — L2 norm of gradients w.r.t. MLP weights.
+**Target**: `surprise = ‖∇_θ ℓ(M_θ(k), v)‖` — L2 norm of gradients w.r.t. all MLP weights.
 
-This is the actual "surprise metric" defined in the Titans paper. Gradient magnitude is a theoretically cleaner metric: a pattern that the MLP can reconstruct but hasn't fully internalized (high gradient despite low reconstruction error) should still be stored.
+The paper defines the surprise metric as the gradient magnitude of the memory loss:
+```
+Surprise(k, v) = ‖∇_θ ℓ(M_θ(k), v)‖
+```
 
-### Implementation
+This is more principled than reconstruction error because:
+- A pattern with low reconstruction error can still have high gradient (MLP hasn't fully internalized it)
+- Gradient magnitude directly measures "how much would this pattern change my weights"
+- Matches the paper's test-time training formulation exactly
+
+### Change in `store()`:
 
 ```python
-def store(self, embeddings, texts=None):
-    for i in range(embeddings.shape[0]):
-        emb = embeddings[i:i+1]
-        self.model.train()
-        self.optimizer.zero_grad()
-        reconstructed = self.model(emb)
-        loss = F.mse_loss(reconstructed, emb)
-        loss.backward()
-        
-        # Surprise = gradient magnitude (L2 norm of all gradients)
-        total_norm = 0.0
-        for p in self.model.parameters():
-            if p.grad is not None:
-                total_norm += p.grad.norm().item() ** 2
-        surprise = total_norm ** 0.5
-        
-        # Momentum
-        self._momentum = (
-            self.momentum_beta * self._momentum
-            + (1 - self.momentum_beta) * surprise
-        )
-        effective_surprise = surprise + self.momentum_scale * self._momentum
-        
-        if effective_surprise >= self.surprise_threshold:
-            self.optimizer.step()
-            # cache pattern text
-        else:
-            self.optimizer.zero_grad()  # discard gradients
+# Before: reconstruction error (forward only)
+with torch.no_grad():
+    reconstructed = self.model(emb)
+    surprise = F.mse_loss(reconstructed, emb).item()
+
+# After: gradient magnitude (requires backward)
+self.model.train()
+self.optimizer.zero_grad()
+reconstructed = self.model(emb)
+loss = F.mse_loss(reconstructed, emb)
+loss.backward()
+surprise = sum(p.grad.norm().item() ** 2 for p in self.model.parameters()
+               if p.grad is not None) ** 0.5
 ```
 
 **VRAM**: +0 MB (gradients already exist after backward).
-**Cost**: One backward pass per token (already happens on store — moved earlier).
+**Lines changed**: ~10 in `store()`.
 
 ---
 
-## 2. Deep Memory Experiment
+## Upgrade 2: Huber Loss Attentional Bias
 
-**Current**: Default depth=2 layers.
+**Paper**: MIRAS §3.2 — "Going beyond MSE and dot-product objectives"
 
-**Titans finding**: Deeper memory → better perplexity, better scaling to long sequences.
+**Current**: MSE loss for all surprise computations.
 
-**Action**: Run consolidation on the same episode batch with depth=2, 4, 6. Measure average reconstruction error after storage. If deeper = better (like Titans claims), change default to 4.
+**MIRAS finding**: The YAAD variant uses Huber loss, which is less sensitive to outliers. MSE amplifies outlier errors quadratically; Huber grows linearly past its threshold δ. This makes memory more robust to noisy or atypical inputs.
 
-### Test script
-
-```python
-from project_adam.memory.diffmemory import DiffMemory
-import numpy as np, time
-
-embs = np.random.randn(100, 384).astype(np.float32)
-texts = [f"pattern_{i}" for i in range(100)]
-
-for depth in [2, 4, 6]:
-    dm = DiffMemory(dim=384, depth=depth, surprise_threshold=0.01)
-    t0 = time.time()
-    dm.store(embs, texts=texts)
-    dt = time.time() - t0
-    # Re-encode and measure average error
-    errors = []
-    for emb in embs:
-        emb_t = torch.from_numpy(emb).float()
-        with torch.no_grad():
-            recon = dm.model(emb_t.unsqueeze(0))
-            errors.append(F.mse_loss(recon, emb_t.unsqueeze(0)).item())
-    print(f"depth={depth}: avg_error={np.mean(errors):.4f}, time={dt:.2f}s")
-```
-
-**VRAM**: ~+3 MB per depth increase (2→4). GTX 1050 4GB can handle depth=6 (~9 MB).
-
----
-
-## 3. MIRAS-Style Attentional Bias Options
-
-**Current**: MSE loss for surprise computation only.
-
-**MIRAS framework**: Generalizes beyond MSE to include Huber loss, L1, generalized norms. The YAAD variant uses Huber loss for outlier robustness.
-
-**Action**: Add configurable loss function parameter to DiffMemory.
+### Change:
 
 ```python
-_LOSS_FN = {
+# Configurable loss function
+_LOSS_FNS = {
     "mse": F.mse_loss,
     "huber": F.huber_loss,
-    "l1": F.l1_loss,
 }
 
 class DiffMemory:
     def __init__(self, ..., loss_fn="mse"):
-        self.loss_fn = _LOSS_FN.get(loss_fn, F.mse_loss)
+        self.loss_fn = _LOSS_FNS.get(loss_fn, F.mse_loss)
 ```
 
-Huber loss is less sensitive to outliers — if a single embedding dimension has a large error (outlier), MSE amplifies it quadratically, while Huber grows linearly past its threshold. This could prevent a single weird token from dominating the memory update.
+Huber loss adds a `delta` parameter (default 1.0). The MIRAS paper's YAAD variant explicitly uses this for outlier robustness.
 
 **VRAM**: +0 MB.
-**Cost**: Negligible.
+**Lines changed**: ~5 in `__init__`, ~2 in `store()`.
 
 ---
 
-## 4. Needle-in-Haystack Benchmark
+## Upgrade 3: Adaptive Forgetting (Learned Weight Decay)
 
-**Goal**: Validate that DiffMemory actually retrieves stored patterns correctly.
+**Paper**: Titans §3.2, eq. 13 and MIRAS §3.3 "Retention Regularization"
 
-### Test design
+**Current**: Fixed `weight_decay=1e-4` in AdamW.
 
-1. Store 100 patterns via `diffmemory.store()` — diverse embeddings, realistic texts
-2. Store 1 "needle" pattern with a unique text
-3. Query with the needle's embedding
-4. Assert the needle appears in top-3 retrieved results
-5. Repeat with varying haystack sizes (50, 100, 200)
+**Paper approach**: Titans learns a per-token decay factor via a tiny MLP head (`to_decay_factor`). MIRAS reinterprets this as "retention regularization" — the gate that controls how much of the old memory to retain vs overwrite.
 
-This is a simplified version of the BABILong benchmark used in the Titans paper.
+### Change:
 
-### Implementation
+```python
+# Learned decay head (tiny MLP)
+self.to_decay = nn.Sequential(
+    nn.Linear(dim, 8),
+    nn.GELU(),
+    nn.Linear(8, 1),
+    nn.Sigmoid(),  # output in (0, 1)
+)
+
+# In store():
+decay = self.to_decay(emb).item()  # per-input retention rate
+# Paper eq. 13: θ' = θ - λ·θ + η·g  (λ = decay)
+# AdamW already does θ = θ - η·g - λ·θ via weight_decay
+```
+
+The learned decay allows the memory to adapt its forgetting rate per input — high decay for noisy inputs, low decay for important patterns.
+
+**VRAM**: ~+0.01 MB (tiny MLP, 384×8 + 8×1 = 3080 params).
+**Lines added**: ~10.
+
+---
+
+## Upgrade 4: Needle-in-Haystack Benchmark
+
+**Paper**: Titans §4.3 — "Extreme Long-Context Recall" on BABILong
+
+**Current**: No benchmark for DiffMemory retrieval accuracy.
+
+### Test:
 
 ```python
 def test_needle_in_haystack():
     dm = DiffMemory(dim=384, max_patterns=200)
     rng = np.random.RandomState(42)
     
-    # Haystack: 99 random patterns
+    # 99 haystack patterns
     haystack = rng.randn(99, 384).astype(np.float32)
-    haystack_texts = [f"haystack_{i}" for i in range(99)]
-    dm.store(haystack, texts=haystack_texts)
+    dm.store(haystack, texts=[f"h{i}" for i in range(99)])
     
-    # Needle: 1 specific pattern
+    # 1 needle pattern
     needle = rng.randn(1, 384).astype(np.float32)
     dm.store(needle, texts=["THE_NEEDLE"])
     
-    # Query with needle
     results = dm.retrieve(needle[0], k=5)
-    texts = [r[0] for r in results]
-    assert "THE_NEEDLE" in texts, "Needle not found in top-5!"
+    assert "THE_NEEDLE" in [r[0] for r in results]
 ```
-
----
 
 ## Implementation Order
 
-| # | Task | File | Est. |
-|---|------|------|------|
-| 1 | Gradient magnitude surprise | `memory/diffmemory.py` | 2h |
-| 2 | Loss function options (MSE/Huber/L1) | `memory/diffmemory.py` + `config.py` | 1h |
-| 3 | Deep memory experiment | Run script, no code change | 1h |
-| 4 | Needle-in-haystack benchmark | `tests/test_diffmemory.py` | 3h |
-
-Only tasks 1 and 2 require code changes. Tasks 3 and 4 are experiments/tests.
-
----
+| # | Task | Paper reference | Complexity |
+|---|------|----------------|------------|
+| 1 | Gradient magnitude surprise | Titans eq. 9-10 | Low (~10 lines) |
+| 2 | Huber loss option | MIRAS §3.2 YAAD | Low (~5 lines) |
+| 3 | Adaptive forgetting head | Titans eq. 13, MIRAS §3.3 | Medium (~15 lines) |
+| 4 | Needle-in-haystack test | Titans §4.3 | Low (~20 lines) |
 
 ## VRAM Budget
 
-| Task | VRAM added | Total DiffMemory VRAM |
-|------|-----------|----------------------|
-| Current v2 | — | ~3 MB (depth=2) |
+| Upgrade | VRAM | Total DiffMemory |
+|---------|------|-----------------|
+| Current v2 | ~3 MB | ~3 MB |
 | Gradient magnitude | +0 MB | ~3 MB |
-| Loss function | +0 MB | ~3 MB |
-| Deep memory (depth=6) | +6 MB | ~9 MB |
-| **Worst case** | **+6 MB** | **~9 MB** (well within 4GB) |
+| Huber loss | +0 MB | ~3 MB |
+| Adaptive forgetting | +0.01 MB | ~3.01 MB |
+| **Total** | **~3.01 MB** | |

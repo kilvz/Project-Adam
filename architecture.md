@@ -320,4 +320,4 @@ The full implementation lives at `src/project_adam/` — 20 components across 25
 20. Persona: Markdown-based identity overlay with behavioral rules
 ```
 
-Backend: PyTorch on consumer GPU (GTX 1050 4GB tested) or remote API fallback.
+Backend: PyTorch on consumer GPU (4GB+ VRAM minimum, 8GB+ recommended) or remote API fallback.

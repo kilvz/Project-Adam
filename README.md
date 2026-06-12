@@ -10,7 +10,7 @@
 
 > **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md` by 57 architecture compliance tests. 193 tests total. No stubs, no planned sections — the code is the architecture.
 
-Built on Qwen2.5 (0.5B/1.5B/3B) with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses a remote API endpoint for generation while continuing to train via online distillation.
+Built on Qwen2.5 (0.5B/1.5B/3B) with LoRA fine-tuning, running on consumer GPUs with 4GB+ VRAM. Optionally uses a remote API endpoint for generation while continuing to train via online distillation.
 
 ## Features
 
@@ -233,8 +233,9 @@ PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 
 ## Requirements
 
+- **Minimum**: NVIDIA GPU with 4GB+ VRAM (Pascal or newer) — or use remote API backend
+- **Recommended**: NVIDIA GPU with 8GB+ VRAM (Volta or newer) for local generation
 - Python 3.10+
-- NVIDIA GPU with 4GB+ VRAM (GTX 1050 minimum) — or use remote API backend
 - 6GB disk for Qwen2.5-3B model (~2GB quantized)
 - API key required for remote API endpoint (set `key` in config.yaml)
 
