@@ -10,26 +10,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
-from .agent import CognitiveAgent
+from . import get_cached_agent
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Project Adam API", version="1.0.0")
 
-_agent = None
-
 MODEL_ID = "adam-cognet"
 
 
 def get_agent():
-    global _agent
-    if _agent is None:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
-            _agent = CognitiveAgent()
-        logger.info("Agent ready")
-    return _agent
+    return get_cached_agent()
 
 
 class ChatRequest(BaseModel):

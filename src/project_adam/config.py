@@ -46,6 +46,16 @@ BACKEND_CONFIG = {
     },
 }
 
+SELF_PLAY_CONFIG = {
+    "enabled": False,
+    "interval_seconds": 120,
+    "batch_size": 8,
+    "strategies": ["schema", "world_model", "procedural", "creative"],
+    "max_recent_queries": 200,
+    "reward": 0.85,
+    "checkpoint_interval": 50,
+}
+
 # ── Hardware detection ────────────────────────────────────────────────
 HARDWARE_TIER = "unknown"  # "low", "mid", "high"
 GPU_VRAM_GB = 0
@@ -95,7 +105,7 @@ def _cast_dtype(val):
 
 def load_config(path=None):
     global DEVICE, BASE_MODEL, MODEL_CHAIN, PERSONA_PATH, _4BIT_CONFIG
-    global GENERATION_CONFIG, _CONFIG_LOADED
+    global GENERATION_CONFIG, _CONFIG_LOADED, SELF_PLAY_CONFIG
 
     if _CONFIG_LOADED:
         return
@@ -159,6 +169,18 @@ def load_config(path=None):
             mode = "local" if HARDWARE_TIER == "low" else "api"
 
         BACKEND_CONFIG["mode"] = mode
+
+    sp = cfg.get("self_play", {})
+    if sp:
+        SELF_PLAY_CONFIG.update({
+            "enabled": sp.get("enabled", SELF_PLAY_CONFIG["enabled"]),
+            "interval_seconds": sp.get("interval_seconds", SELF_PLAY_CONFIG["interval_seconds"]),
+            "batch_size": sp.get("batch_size", SELF_PLAY_CONFIG["batch_size"]),
+            "strategies": sp.get("strategies", SELF_PLAY_CONFIG["strategies"]),
+            "max_recent_queries": sp.get("max_recent_queries", SELF_PLAY_CONFIG["max_recent_queries"]),
+            "reward": sp.get("reward", SELF_PLAY_CONFIG["reward"]),
+            "checkpoint_interval": sp.get("checkpoint_interval", SELF_PLAY_CONFIG["checkpoint_interval"]),
+        })
 
     _CONFIG_LOADED = True
 

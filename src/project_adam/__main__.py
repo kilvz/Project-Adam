@@ -18,7 +18,10 @@ def main():
         logger.info("%s behavioral rules loaded", len(agent.persona.behavior_rules))
     else:
         logger.warning("no persona file found, using generic assistant")
-    if "--web" in sys.argv:
+    if "--mcp" in sys.argv:
+        from .mcp_server import run_stdio
+        run_stdio()
+    elif "--web" in sys.argv:
         run_web_ui(agent)
     elif "--voice" in sys.argv:
         vm = VoiceMode()

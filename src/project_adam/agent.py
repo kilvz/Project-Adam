@@ -13,7 +13,8 @@ except ImportError:
 import logging
 from .config import (BASE_MODEL, MODEL_0_5B,
                      MODEL_CHAIN, DEVICE, HARDWARE_TIER,
-                     get_memory_dir, get_4bit_config)
+                     get_memory_dir, get_4bit_config,
+                     BACKEND_CONFIG, SELF_PLAY_CONFIG)
 
 logger = logging.getLogger(__name__)
 from .persona import Persona
@@ -33,7 +34,6 @@ from .selector import ActionSelector
 from .rl_core import TDCore
 from .world_model import WorldModel
 from .rl_core import TDCore as _TDCore
-from .config import BACKEND_CONFIG
 
 
 class CognitiveAgent:
@@ -144,6 +144,15 @@ class CognitiveAgent:
         self.user_profiles = UserProfileManager()
         self.consolidator.user_profiles = self.user_profiles
         self.current_profile = None
+
+        self.self_play = None
+        if SELF_PLAY_CONFIG.get("enabled"):
+            from .self_play import SelfPlayLearner
+            self.self_play = SelfPlayLearner(self, SELF_PLAY_CONFIG)
+            self.self_play.start()
+            logger.info("Self-play started: interval=%ds batch=%d strategies=%s",
+                        self.self_play.interval, self.self_play.batch_size,
+                        self.self_play.strategies)
 
     def _build_td_features(self, user_input, reward):
         profile = self.current_profile or {}
@@ -274,6 +283,9 @@ class CognitiveAgent:
             self.consolidator.merge_episodes(rpe=rpe)
         elif meta_action == "proceed" and not used_search:
             self.action_selector.record_fast_outcome(rpe)
+
+        if meta_action == "EXPLORE" and self.self_play is not None:
+            self.self_play._run_immediately.set()
 
         reply = self.language.apply_behavioral_rules(
             user_input, reply, reward, self.persona, self.current_profile
@@ -438,3 +450,46 @@ class CognitiveAgent:
             except Exception as e:
                 logger.warning("Failed to load adapter for %s: %s", user, e)
         self._current_adapter = user
+
+    def teacher_generate(self, query):
+        """Generate a teacher response for a raw query (no persona, no metacog).
+
+        Used by the self-play loop to get expert responses for training data.
+        Falls back to local model if the API is unreachable.
+        """
+        messages = [{"role": "user", "content": query}]
+        if self.backend == "api":
+            reply = self.language._api_generate(messages)
+            if not reply:
+                reply = self.language._local_generate(messages)
+        else:
+            reply = self.language._local_generate(messages)
+        return reply.strip() if reply else ""
+
+    def toggle_self_play(self, action="status"):
+        """Control the self-play background thread.
+
+        Args:
+            action: "start", "stop", "restart", or "status" (default).
+
+        Returns:
+            dict with loop state and training stats.
+        """
+        if self.self_play is None:
+            if action == "start":
+                from .self_play import SelfPlayLearner
+                self.self_play = SelfPlayLearner(self, SELF_PLAY_CONFIG)
+                self.self_play.start()
+                return {"status": "started", "stats": self.self_play.stats}
+            return {"status": "disabled", "stats": {}}
+
+        if action == "start":
+            self.self_play.start()
+        elif action == "stop":
+            self.self_play.stop()
+        elif action == "restart":
+            self.self_play.stop()
+            self.self_play.start()
+
+        return {"status": "running" if self.self_play.stats["running"] else "stopped",
+                "stats": self.self_play.stats}

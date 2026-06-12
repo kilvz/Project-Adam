@@ -26,3 +26,14 @@ backend:
     key: ""
     model: "ai-model"
     timeout: 30
+
+self_play:
+  enabled: true                    # auto-start on agent init
+  interval_seconds: 120            # seconds between query batches
+  batch_size: 8                    # queries per batch
+  strategies:
+    - schema
+    - world_model
+    - procedural
+    - creative
+  reward: 0.85                     # default reward for teacher pairs
