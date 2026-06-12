@@ -29,3 +29,4 @@ unused/
 venv/
 .vscode/
 config.yaml
+.external/
