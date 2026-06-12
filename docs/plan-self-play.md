@@ -32,6 +32,7 @@ class SelfPlayLearner:
         self._query_history = deque(maxlen=200)
         self._checkpoint_path = get_memory_dir() / "self_play_checkpoint.json"
         self._load_checkpoint()
+        self._run_immediately = threading.Event()
 
         self.stats = {
             "total_queries": 0,
@@ -50,17 +51,25 @@ class SelfPlayLearner:
 | `start()` | Set event flag, spawn daemon thread, set `stats["running"] = True` |
 | `stop()` | Clear event flag, join thread (timeout=5), save checkpoint, set `running = False` |
 | `_loop()` | Main loop (see below) |
-| `_call_teacher(query) → str` | Calls `agent.language._api_generate([{"role":"user","content":query}])`. Falls back to `_local_generate()` if API fails. |
+| `_call_teacher(query) → str` | Calls `agent.teacher_generate(query)` — a public wrapper on agent.py that handles API→local fallback. |
 | `_dedup(queries) → list` | Embeds each query via `agent.episodic_memory.encode()`, checks cosine similarity against `_query_history`. Skips if `>0.85` match. |
 | `_log_stats(strategy, count)` | Updates `stats["total_queries"]`, `stats["current_strategy"]` |
 | `_save_checkpoint()` | JSON dump of `_query_history` + `stats` |
 | `_load_checkpoint()` | JSON load if exists, else empty |
-| `_trigger_now` | Flag set by agent when metacog selects EXPLORE — next loop iteration runs immediately |
+| `_run_immediately` | `threading.Event` set by agent when metacog selects EXPLORE — wakes loop to run immediately |
 
 ### `_loop()` body
 
 ```python
 while self._running.is_set():
+    # METACOG GATE: only generate when metacog would choose exploration
+    # This keeps strategy selection under metacog control (Section 5).
+    if self.agent.metacognitive.last_action not in ("EXPLORE", "ASK_FOR_HELP"):
+        if not self._run_immediately.is_set():
+            time.sleep(self.interval)
+            continue
+        self._run_immediately.clear()
+
     for strategy in self.strategies:
         self.stats["current_strategy"] = strategy
         n = self.batch_size // len(self.strategies)
@@ -74,14 +83,20 @@ while self._running.is_set():
                 continue
 
             # ARCHITECTURE PATH: store in episodic memory
-            # The existing pipeline handles training:
-            #   merge_episodes() → RPE → _lora_train_step()
             self.agent.episodic_memory.add(
                 text=q,
                 reward=self.reward,
                 action=resp,
                 context="self_play",
             )
+
+            # IMMEDIATELY COMPUTE RPE so consolidation prioritization
+            # (Step 2 of the 6-step cycle) can rank this episode.
+            baseline_features = [0.0] * 8
+            rpe = self.agent.td_core.update(self.reward, baseline_features)
+            if self.agent.episodic_memory.episodes:
+                self.agent.episodic_memory.episodes[-1]["rpe"] = rpe
+
             self._query_history.append(q)
             self.stats["total_queries"] += 1
             self.stats["total_trained"] += 1
@@ -89,11 +104,10 @@ while self._running.is_set():
         if self.stats["total_queries"] % self.checkpoint_interval == 0:
             self._save_checkpoint()
 
-    time.sleep(self.interval if not self._trigger_now else 0)
-    self._trigger_now = False
+    time.sleep(self.interval)
 ```
 
-The thread never calls `merge_episodes()`, `_lora_train_step()`, or any training function. The metacog's REPLAY action triggers consolidation.
+The thread never calls `merge_episodes()`, `_lora_train_step()`, or any training function. The metacog's REPLAY action triggers consolidation. The thread only generates data and computes RPE to enable prioritization.
 
 ### Query generation (4 strategies)
 
@@ -430,11 +444,12 @@ def adam_teach_skill(context: str, action: str, reward: float = 0.8) -> dict:
     """
     agent = _get_agent()
     agent.procedural_memory.record(context, action, reward)
+    p_stats = agent.procedural_memory.stats()
     return {
         "status": "stored", "context_len": len(context), "action_len": len(action),
         "reward": reward,
-        "total_skills": len(agent.procedural_memory.skills),
-        "total_chunks": len(agent.procedural_memory._chunks),
+        "total_skills": p_stats["num_skills"],
+        "total_chunks": p_stats["num_chunks"],
     }
 ```
 
@@ -529,6 +544,27 @@ if SELF_PLAY_CONFIG.get("enabled"):
                 self.self_play.strategies)
 ```
 
+### New public wrapper: `teacher_generate(query: str) -> str`
+
+Provides a clean public interface for self-play to call the teacher API, rather than accessing `language._api_generate()` directly.
+
+```python
+def teacher_generate(self, query: str) -> str:
+    """Generate a teacher response for a raw query (no persona, no metacog).
+
+    Used by the self-play loop to get expert responses for training data.
+    Falls back to local model if the API is unreachable.
+    """
+    messages = [{"role": "user", "content": query}]
+    if self.backend == "api":
+        reply = self.language._api_generate(messages)
+        if not reply:
+            reply = self.language._local_generate(messages)
+    else:
+        reply = self.language._local_generate(messages)
+    return reply.strip() if reply else ""
+```
+
 ### New method: `toggle_self_play(action: str) -> dict`
 
 ```python
@@ -568,9 +604,9 @@ def toggle_self_play(self, action="status"):
 # After the existing REPLAY check:
 if meta_action == "REPLAY":
     self.consolidator.merge_episodes(rpe=rpe)
-# Add EXPLORE nudge:
+# Add EXPLORE nudge — wakes the self-play loop immediately:
 if meta_action == "EXPLORE" and self.self_play is not None:
-    self.self_play._trigger_now = True
+    self.self_play._run_immediately.set()
 ```
 
 ---
@@ -668,14 +704,16 @@ if "--mcp" in sys.argv:
 
 | Component | Architecture reference | How this plan satisfies it |
 |---|---|---|
-| **Self-play thread** | Section 7 — "Offline consolidation during sleep" | Thread generates data only. Never calls training functions. Metacog controls consolidation trigger. |
+| **Self-play thread (metacog gate)** | Section 5 — "strategy selection — when to explore" | Loop only generates when `last_action` is EXPLORE or ASK_FOR_HELP. Metacog retains control. |
+| **Self-play thread (RPE)** | Section 4a — "δ = R + γ·V(s') - V(s)" + Section 7 Step 2 — "prioritize: high-RPE events first" | RPE computed immediately after each episode is stored, so consolidation prioritization (Step 2) can rank self-play episodes alongside human ones. |
+| **Self-play thread (no training)** | Section 7 — "offline consolidation" | Thread never calls training functions. Metacog's REPLAY triggers consolidation. |
 | **MCP adam_teach** | Section 3a — "(state, action, reward, context) tuples" | Stores via `episodic_memory.add()`. Same path as `chat()`. |
-| **MCP adam_observe_entity** | Section 4d — "Bayesian update: P(model\|evidence)" | Calls `world_model.observe()` which does conjugate Gaussian posterior update. |
-| **MCP adam_teach_fact** | Section 3b — "assimilation/accommodation" | Calls `semantic_memory.add()` which runs the full Piaget integration. |
-| **MCP adam_teach_skill** | Section 3c — "Learned via RL, supports chunking" | Calls `procedural_memory.record()` with Q-learning update. |
-| **MCP adam_consolidate** | Section 7 — full 6-step cycle | Calls `consolidator.merge_episodes()` — identical to REPLAY path. |
-| **MCP adam_query_knowledge** | Section 3b/3c/4d — read-only | Reads in-memory data structures. No state mutation. |
-| **No supervised bypass** | Section 4a — "RPE drives all learning" | No tool accepts arbitrary weights or calls `_lora_train_step()` directly. |
+| **MCP adam_observe_entity** | Section 4d — "Bayesian update: P(model\|evidence)" | Calls `world_model.observe()` — conjugate Gaussian posterior update. |
+| **MCP adam_teach_fact** | Section 3b — "assimilation/accommodation" | Calls `semantic_memory.add()` — full Piaget integration via prediction error gating. |
+| **MCP adam_teach_skill** | Section 3c — "Learned via RL, supports chunking" | Calls `procedural_memory.record()` with Q-learning. Stats via public `stats()`. |
+| **MCP adam_consolidate** | Section 7 — full 6-step cycle | Calls `consolidator.merge_episodes(rpe)` — identical to REPLAY path at agent.py:273. |
+| **MCP adam_query_knowledge** | Section 3b/3c/4d — read-only | Reads in-memory data structures via public methods only. No state mutation. |
+| **No supervised bypass** | Section 4a — "RPE drives all learning" | No tool accepts arbitrary weights. All training data flows through `EpisodicMemory` → `merge_episodes()` → `_lora_train_step()`. |
 
 ---
 
