@@ -4,7 +4,7 @@ import logging
 import asyncio
 import queue
 import uuid
-from typing import Optional, List
+from typing import List
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel

@@ -263,10 +263,6 @@ class OfflineConsolidator:
             if len(text) > 10 and action:
                 # Record skill
                 self.procedural.record(text[:200], action[:200], reward)
-                
-                # Update Q-value from replay weight
-                rpe = ep.get("rpe", reward)
-                # This is handled internally via update_from_rpe
         
         logger.debug(f"[consolidate] Updated procedural memory from {len(candidates)} episodes")
 

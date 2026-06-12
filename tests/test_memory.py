@@ -1,10 +1,9 @@
-import torch
 import numpy as np
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from project_adam import (
-    WorkingMemory, EpisodicMemory, SemanticMemory, SQLiteStore,
+    WorkingMemory, EpisodicMemory, SemanticMemory,
 )
 
 def test_working_memory_basic():

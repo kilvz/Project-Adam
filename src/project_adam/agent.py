@@ -11,7 +11,7 @@ except ImportError:
     get_peft_model = None
 
 import logging
-from .config import (BASE_MODEL, MODEL_3B, MODEL_1_5B, MODEL_0_5B,
+from .config import (BASE_MODEL, MODEL_0_5B,
                      MODEL_CHAIN, DEVICE, HARDWARE_TIER,
                      get_memory_dir, get_4bit_config)
 

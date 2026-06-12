@@ -1,7 +1,3 @@
-import torch
-from ..config import get_memory_dir
-
-
 def run_cli(agent):
     greeting = agent.persona.get_opening() if agent.persona else ""
     print("\n── Adam (COGNET) ──")
