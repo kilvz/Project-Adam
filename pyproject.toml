@@ -46,10 +46,5 @@ ignore = ["E501"]
 "src/project_adam/__init__.py" = ["E402"]
 "src/project_adam/agent.py" = ["E402"]
 
-[tool.pytest.ini_options]
-filterwarnings = [
-    "ignore::DeprecationWarning:fastapi",
-]
-
 [project.scripts]
 adam = "project_adam.__main__:main"
