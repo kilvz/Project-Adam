@@ -231,5 +231,41 @@ def search_semantic(
     ]
 
 
+# ── Persona Management Endpoints ──────────────────────────────────────
+
+
+@app.get("/v1/personas")
+async def list_personas():
+    """List available personas."""
+    agent = get_agent()
+    return {"personas": agent.persona_manager.list_personas()}
+
+
+@app.get("/v1/personas/{name}")
+async def get_persona(name: str):
+    """Get persona info without switching."""
+    agent = get_agent()
+    return agent.persona_manager.get_persona_info(name)
+
+
+@app.post("/v1/personas/{name}/switch")
+async def switch_persona(name: str):
+    """Switch to a different persona."""
+    agent = get_agent()
+    return agent.switch_persona(name)
+
+
+@app.post("/v1/personas/{name}/generate")
+async def generate_persona(name: str, description: str = ""):
+    """Generate a new persona via teacher API."""
+    agent = get_agent()
+    try:
+        path = agent.persona_manager.generate_persona(name, description, agent)
+        info = agent.persona_manager.get_persona_info(name)
+        return {"status": "created", "path": str(path), "info": info}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

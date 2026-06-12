@@ -3,7 +3,10 @@ from pathlib import Path
 
 class Persona:
     def __init__(self, path=None):
-        self.path = Path(path) if path else Path("persona-studio/personas/adam.md")
+        if path is None:
+            from .config import PERSONA_PATH
+            path = PERSONA_PATH
+        self.path = Path(path)
         self.raw = ""
         self.essence = ""
         self.behavior_rules = []
@@ -39,10 +42,10 @@ class Persona:
         raw_lines = self.raw.split("\n")
         buf = []
         for line in raw_lines:
-            if line.startswith("## "):
+            if line.startswith("## ") or line.startswith("### "):
                 if current_section:
                     self._store_section(current_section, buf)
-                current_section = line[3:].strip()
+                current_section = line.lstrip("#").strip()
                 buf = [line]
             elif current_section:
                 buf.append(line)
@@ -197,6 +200,19 @@ class Persona:
             self.behavior_rules, weights=weights, k=min(k, len(self.behavior_rules))
         )
         return selected
+
+    def to_dict(self):
+        return {
+            "path": str(self.path),
+            "essence": self.essence,
+            "behavior_rules": [{"condition": c, "action": a} for c, a in self.behavior_rules],
+            "opening_phrases": self.opening_phrases,
+            "closing_phrases": self.closing_phrases,
+            "language_patterns": self.language_patterns,
+            "inquiry_spiral": self.inquiry_spiral,
+            "philosophy": self.philosophy,
+            "voice_traits": self.voice_traits,
+        }
 
     def get_opening(self):
         if self.opening_phrases:

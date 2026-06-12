@@ -154,6 +154,9 @@ class CognitiveAgent:
                         self.self_play.interval, self.self_play.batch_size,
                         self.self_play.strategies)
 
+        from .persona_manager import PersonaManager
+        self.persona_manager = PersonaManager()
+
     def _build_td_features(self, user_input, reward):
         profile = self.current_profile or {}
         sentiment = profile.get("avg_sentiment", 0.0)
@@ -451,7 +454,7 @@ class CognitiveAgent:
                 logger.warning("Failed to load adapter for %s: %s", user, e)
         self._current_adapter = user
 
-    def teacher_generate(self, query):
+    def teacher_generate(self, query, temperature=0.7):
         """Generate a teacher response for a raw query (no persona, no metacog).
 
         Used by the self-play loop to get expert responses for training data.
@@ -460,7 +463,7 @@ class CognitiveAgent:
         """
         messages = [{"role": "user", "content": query}]
         if self.backend == "api":
-            reply = self.language._api_generate(messages)
+            reply = self.language._api_generate(messages, temperature=temperature)
             if reply:
                 return reply.strip()
         if self.model is None or self.tokenizer is None:
@@ -470,8 +473,8 @@ class CognitiveAgent:
         )
         inputs = self.tokenizer(text, return_tensors="pt").to(DEVICE)
         with torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=128,
-                                      temperature=0.7, do_sample=True)
+            out = self.model.generate(**inputs, max_new_tokens=512,
+                                      temperature=temperature, do_sample=True)
         return self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
     def toggle_self_play(self, action="status"):
@@ -501,3 +504,22 @@ class CognitiveAgent:
 
         return {"status": "running" if self.self_play.stats["running"] else "stopped",
                 "stats": self.self_play.get_stats()}
+
+    def switch_persona(self, name):
+        """Switch to a different persona mid-session.
+
+        Args:
+            name: Persona name (must exist in persona directory).
+
+        Returns:
+            dict with status and persona info.
+        """
+        try:
+            persona = self.persona_manager.load_persona(name)
+        except FileNotFoundError:
+            return {"status": "not_found", "name": name}
+        self.persona = persona
+        self.language.persona = persona
+        logger.info("Switched to persona '%s' (%d rules, %dKB raw)",
+                     name, len(persona.behavior_rules), len(persona.raw) // 1024)
+        return {"status": "switched", "name": name, "info": persona.to_dict()}

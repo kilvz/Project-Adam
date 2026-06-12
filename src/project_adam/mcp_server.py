@@ -287,6 +287,67 @@ def adam_self_play(action: str = "status") -> dict:
     return agent.toggle_self_play(action)
 
 
+# ── Persona Management Tools ─────────────────────────────────────────
+
+
+@mcp.tool(description="List available personas that Adam can switch to.")
+def adam_list_personas() -> list:
+    """List all available personas in the persona directory."""
+    agent = _get_agent()
+    return agent.persona_manager.list_personas()
+
+
+@mcp.tool(description="Get detailed information about a specific persona.")
+def adam_get_persona(name: str) -> dict:
+    """Get metadata and structure of a persona without switching to it.
+
+    Args:
+        name: The persona name to inspect.
+
+    Returns:
+        Dict with persona fields, rule count, phrase counts.
+    """
+    agent = _get_agent()
+    return agent.persona_manager.get_persona_info(name)
+
+
+@mcp.tool(description="Switch Adam to a different persona mid-session.")
+def adam_switch_persona(name: str) -> dict:
+    """Switch to a different persona. Takes effect on next chat.
+
+    Args:
+        name: The persona name to switch to.
+
+    Returns:
+        Dict with switch status and persona info.
+    """
+    agent = _get_agent()
+    return agent.switch_persona(name)
+
+
+@mcp.tool(description="Generate a new persona using the teacher API.")
+def adam_generate_persona(name: str, description: str) -> dict:
+    """Generate a new persona via the teacher API.
+
+    Creates N variations with different temperatures, then synthesizes
+    them into one final persona saved to persona-studio/personas/{name}/.
+
+    Args:
+        name: Persona name (used as the filename).
+        description: Short description of the persona to generate.
+
+    Returns:
+        Dict with status and path to the generated persona.
+    """
+    agent = _get_agent()
+    try:
+        path = agent.persona_manager.generate_persona(name, description, agent)
+        info = agent.persona_manager.get_persona_info(name)
+        return {"status": "created", "path": str(path), "info": info}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 def run_stdio():
     """Run MCP server over stdio for subprocess integration."""
     import asyncio
