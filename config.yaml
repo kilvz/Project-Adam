@@ -36,10 +36,9 @@ generation:
 backend:
   mode: "auto"                        # "auto", "local", or "api"
   api:
-    endpoint: "https://<remoteapibackend>/v1/chat/completions"
-    key: ""
-    model: "ai-model"
-    timeout: 30
+    endpoint: ""                       # OpenAI-compatible API endpoint (e.g. "https://api.openai.com/v1/chat/completions")
+    key: ""                            # API key for the endpoint
+    model: "gpt-4o-mini"               # Model name to use at the endpoint
 
 self_play:
   enabled: true                    # auto-start on agent init
