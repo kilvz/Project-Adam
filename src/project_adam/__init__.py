@@ -40,7 +40,7 @@ __all__ = [
     "BACKEND_CONFIG", "HARDWARE_TIER", "GPU_VRAM_GB", "GPU_COMPUTE_CAP",
     "get_memory_dir", "set_memory_dir",
     "load_config", "setup_logging",
-    "get_cached_agent", "SELF_PLAY_CONFIG",
+    "get_cached_agent", "SELF_PLAY_CONFIG", "get_generation_config",
     "Persona", "UserProfileManager",
     "SensoryEncoder", "VisionEncoder", "AudioEncoder",
     "WorkingMemory", "EpisodicMemory", "SemanticMemory",

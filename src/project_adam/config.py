@@ -36,6 +36,30 @@ GENERATION_CONFIG = {
     "top_p": 0.9,
 }
 
+_MODEL_GENERATION_OVERRIDES = {
+    "0.5B": {"max_new_tokens": 64, "temperature": 0.8, "top_p": 0.95},
+    "1.5B": {"max_new_tokens": 128, "temperature": 0.7, "top_p": 0.9},
+    "3B":   {"max_new_tokens": 256, "temperature": 0.7, "top_p": 0.9},
+}
+
+
+def get_generation_config(model_name=None):
+    """Return generation config with model-specific overrides applied.
+
+    Args:
+        model_name: e.g. "Qwen/Qwen2.5-1.5B-Instruct" or None.
+
+    Returns:
+        Dict with generation parameters (max_new_tokens, temperature, top_p, etc.).
+    """
+    cfg = dict(GENERATION_CONFIG)
+    if model_name:
+        for pattern, overrides in _MODEL_GENERATION_OVERRIDES.items():
+            if pattern in model_name:
+                cfg.update(overrides)
+                break
+    return cfg
+
 BACKEND_CONFIG = {
     "mode": "local",
     "api": {

@@ -98,7 +98,7 @@ class CognitiveAgent:
         self.world_model = WorldModel()
         self.web_search = WebSearch()
         self.working_memory = WorkingMemory(max_turns=64)
-        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend, working_memory=self.working_memory)
+        self.language = LanguageInterface(self.model, self.tokenizer, persona=None, web_search=self.web_search, world_model=self.world_model, backend=self.backend, working_memory=self.working_memory, model_name=self.model_name)
         self.episodic_memory = EpisodicMemory()
         self.semantic_memory = SemanticMemory()
         self.procedural_memory = ProceduralMemory()
@@ -459,7 +459,7 @@ class CognitiveAgent:
                 logger.warning("Failed to load adapter for %s: %s", user, e)
         self._current_adapter = user
 
-    def teacher_generate(self, query, temperature=0.7, max_tokens=512):
+    def teacher_generate(self, query, temperature=None, max_tokens=None):
         """Generate a teacher response for a raw query (no persona, no metacog).
 
         Used by the self-play loop to get expert responses for training data.
@@ -468,9 +468,18 @@ class CognitiveAgent:
 
         Args:
             query: The prompt to send.
-            temperature: Sampling temperature (0.0-1.0).
-            max_tokens: Maximum tokens to generate (default 512, use 4096 for personas).
+            temperature: Sampling temperature (0.0-1.0, None=model default).
+            max_tokens: Maximum tokens to generate (None=model default, use 4096 for personas).
         """
+        from .config import get_generation_config
+        gen = get_generation_config(self.model_name)
+        if temperature is None:
+            temperature = gen.get("temperature", 0.7)
+        if max_tokens is None:
+            max_tokens = gen.get("max_new_tokens", 128)
+        top_p = gen.get("top_p", 0.9)
+        top_k = gen.get("top_k")
+
         messages = [{"role": "user", "content": query}]
         if self.backend == "api":
             reply = self.language._api_generate(messages, temperature=temperature,
@@ -483,9 +492,12 @@ class CognitiveAgent:
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = self.tokenizer(text, return_tensors="pt").to(DEVICE)
+        gen_kwargs = dict(max_new_tokens=max_tokens, temperature=temperature,
+                          do_sample=True, top_p=top_p)
+        if top_k is not None:
+            gen_kwargs["top_k"] = top_k
         with torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=max_tokens,
-                                      temperature=temperature, do_sample=True)
+            out = self.model.generate(**inputs, **gen_kwargs)
         return self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
     def toggle_self_play(self, action="status"):

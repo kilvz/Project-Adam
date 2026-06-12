@@ -28,7 +28,8 @@ class _SentenceStopper(StoppingCriteria):
 
 class LanguageInterface:
     def __init__(self, model, tokenizer, persona=None, web_search=None,
-                 world_model=None, backend=None, working_memory=None):
+                 world_model=None, backend=None, working_memory=None,
+                 model_name=None):
         self.model = model
         self.tokenizer = tokenizer
         self.persona = persona
@@ -36,6 +37,7 @@ class LanguageInterface:
         self.world_model = world_model
         self.backend = backend or BACKEND_CONFIG.get("mode", "local")
         self.working_memory = working_memory
+        self.model_name = model_name
         self._encdec_model = None
         self._encdec_tokenizer = None
         if HARDWARE_TIER == "high":
@@ -48,8 +50,14 @@ class LanguageInterface:
             except Exception:
                 pass
 
-    def _api_generate(self, messages, temperature=0.7, token_callback=None,
-                      meta_action=None, max_tokens=128):
+    def _api_generate(self, messages, temperature=None, token_callback=None,
+                      meta_action=None, max_tokens=None):
+        from .config import get_generation_config, BACKEND_CONFIG
+        gen = get_generation_config(self.model_name)
+        if temperature is None:
+            temperature = gen.get("temperature", 0.7)
+        if max_tokens is None:
+            max_tokens = gen.get("max_new_tokens", 128)
         import requests as req
         api_cfg = BACKEND_CONFIG.get("api", {})
         headers = {
@@ -92,7 +100,15 @@ class LanguageInterface:
             logger.warning("API call failed: %s — falling back to local", e)
         return reply.strip()
 
-    def _local_generate(self, messages, temperature=0.7, token_callback=None):
+    def _local_generate(self, messages, temperature=None, token_callback=None):
+        from .config import get_generation_config
+        gen = get_generation_config(self.model_name)
+        if temperature is None:
+            temperature = gen.get("temperature", 0.7)
+        max_new_tokens = gen.get("max_new_tokens", 128)
+        top_p = gen.get("top_p", 0.9)
+        top_k = gen.get("top_k")
+
         if self.model is None:
             return ""
         if self._encdec_model is not None and self._encdec_tokenizer is not None:
@@ -100,7 +116,7 @@ class LanguageInterface:
             enc = self._encdec_tokenizer(user_text, return_tensors="pt",
                                          truncation=True, max_length=256).to(self._encdec_model.device)
             with torch.no_grad():
-                out = self._encdec_model.generate(**enc, max_new_tokens=128,
+                out = self._encdec_model.generate(**enc, max_new_tokens=max_new_tokens,
                                                   temperature=temperature, do_sample=True)
             return self._encdec_tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
@@ -120,13 +136,15 @@ class LanguageInterface:
         )
         generation_kwargs = dict(
             **inputs,
-            max_new_tokens=128,
+            max_new_tokens=max_new_tokens,
             temperature=temperature,
             do_sample=True,
-            top_p=0.9,
+            top_p=top_p,
             streamer=streamer,
             stopping_criteria=stopping_criteria,
         )
+        if top_k is not None:
+            generation_kwargs["top_k"] = top_k
 
         def generate():
             with torch.no_grad():
