@@ -5,10 +5,12 @@
 [![CI](https://github.com/kilvz/Project-Adam/actions/workflows/ci.yml/badge.svg)](https://github.com/kilvz/Project-Adam/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)
+![Tests](https://img.shields.io/badge/tests-193%20passing-brightgreen)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 
-> **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md`, with 136 passing tests. No stubs, no planned sections — the code is the architecture.
+> **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md` by 57 architecture compliance tests. 193 tests total. No stubs, no planned sections — the code is the architecture.
 
-Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses a remote API endpoint for generation while continuing to train the local model via online distillation.
+Built on Qwen2.5 (0.5B/1.5B/3B) with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses a remote API endpoint for generation while continuing to train via online distillation.
 
 ## Features
 
@@ -27,10 +29,11 @@ Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entire
 | **TDCore** | `rl_core.py` | TD(λ) with linear V(s), ActorNetwork policy head (8→64→5), eligibility traces, RPE broadcast. |
 | **SFLModule** | `sfl.py` | 7 social features, Rescorla-Wagner Q-learning, compute_temperature() for action selection. |
 | **WorldModel** | `world_model.py` | Bayesian conjugate priors, causal graph, observation from text, transition simulation, speaker model. |
-| **MetacognitiveController** | `metacog.py` | Learned MLP policy (5→16→5, REINFORCE), confidence estimation, strategy selection, 5 canonical actions. |
+| **MetacognitiveController** | `metacog.py` | Learned MLP policy (5→32→16→5, REINFORCE), confidence estimation, strategy selection, 5 canonical actions. |
 | **LanguageInterface** | `language.py` | Dual-backend generation (local / remote API), persona builder, behavioral rules, utterance-likeness scoring. |
 | **ActionSelector** | `selector.py` | Dual-system: pattern-based fast path + world model slow path, learned Q-values, trajectory simulation. |
 | **OfflineConsolidator** | `consolidator.py` | Full 6-step cycle (TD replay → prioritize → abstract → prune → world model → procedural). Metacog-triggered. |
+| **DiffMemory** | `memory/diffmemory.py` | Lightweight differentiable memory — 2-layer MLP, surprise-gated storage during consolidation, fast-forward retrieval at inference. ~3MB VRAM. |
 
 ### 🚀 User-Facing
 
@@ -38,11 +41,16 @@ Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entire
 - **Dual-backend generation** — Local Qwen (auto-detected hardware tier) or remote API (OpenAI-compatible)
 - **Online distillation** — Remote API responses train the local LoRA model, no separate pipeline needed
 - **Hardware auto-detection** — Low tier (≤4GB Pascal) → API mode; Mid (8GB+ Volta) / High (24GB+ Ampere) → local mode
+- **Self-play learning** — Autonomous background thread generates (query, teacher_response) pairs from knowledge gaps, gated by metacog
+- **Persona generation** — Create new personas via teacher API with multi-draft synthesis, auto-condensed to model tier
+- **13 MCP tools** — Query knowledge, teach, consolidate, switch personas, control self-play via stdio/API
+- **DiffMemory** — Compresses episodic patterns into differentiable MLP weights during consolidation
 - **Streaming output** — Tokens appear one-by-one
 - **Web UI** — Gradio interface at `localhost:7860` (`--web`)
 - **Voice mode** — Speech-to-speech conversation (`--voice`)
 - **REST API** — FastAPI + OpenAI-compatible `/v1/chat/completions` (streaming + non-streaming), `/v1/models`
 - **Web search** — DuckDuckGo for general search, Wikipedia for knowledge (separate methods, independent caches)
+- **Generation config** — All 18 model.generate() parameters configurable via YAML, auto-detected per model size
 - **Reward-driven learning** — SFL Q-learning (7 social features), RPE broadcast to all subsystems, reward-weighted curriculum
 - **Configurable via YAML** — `config.yaml` overrides device, model chain, quantization, generation params, backend mode
 
@@ -61,7 +69,11 @@ python3 -m project_adam --web
 python3 -m project_adam --voice
 
 # REST API server
-uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
+./start_adam.sh
+# or: PYTHONPATH=src uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
+
+# MCP server (for external AI integration)
+python3 -m project_adam --mcp
 
 # Test OpenAI-compatible endpoint
 curl http://localhost:8765/v1/models
@@ -74,7 +86,6 @@ curl -X POST http://localhost:8765/v1/chat/completions \
 
 ```bash
 export API_ENDPOINT="http://localhost:8765/v1"
-```
 ```
 
 ### Use remote API backend
@@ -100,10 +111,13 @@ Metacognitive Controller ─┬─ Sensory Encoder (β-VAE, top-10% sparse, lear
                            ├─ Semantic Memory (schema graph, slot values, prediction error, assimilation)
                            ├─ Procedural Memory (RL via RPE, chunking, Q-values)
                            ├─ Spatial Memory (17 relations, conflict detection, inverse inference, traversal)
+                           ├─ DiffMemory (differentiable MLP, surprise-gated, consolidation-trained)
                            ├─ SFL Module (7 features, Rescorla-Wagner Q-learning)
                            ├─ User Profiles (per-user state, custom rules)
                            ├─ World Model (Bayesian conjugate, causal graph, speaker model)
                            ├─ Web Search (DDGS general + Wikipedia knowledge, separate)
+                           ├─ Self-Play (daemon thread, 4 strategies, metacog-gated)
+                           ├─ Persona Manager (list, load, switch, generate via teacher API)
                            ├─ Action Selector (dual-system: learned Q-values + trajectory simulation)
                            └─ Offline Consolidator (6-step cycle: replay→prioritize→abstract→prune→WM→procedural)
 ```
@@ -154,6 +168,29 @@ generation:
   top_p: 0.9
 ```
 
+## MCP Tools (13)
+
+```bash
+# Start MCP server (external AI connects via stdio)
+python3 -m project_adam --mcp
+```
+
+| Tool | Description |
+|------|-------------|
+| `adam_query_knowledge` | Search all memory for a topic |
+| `adam_explain_entity` | Get Bayesian beliefs about an entity |
+| `adam_get_status` | Stats across all memory systems |
+| `adam_teach` | Submit (query, response) learning pair |
+| `adam_observe_entity` | Submit entity observation |
+| `adam_teach_fact` | Submit fact → assimilation/accommodation |
+| `adam_teach_skill` | Submit skill example → Q-learning |
+| `adam_consolidate` | Run 6-step consolidation cycle |
+| `adam_self_play` | Control autonomous learning loop |
+| `adam_list_personas` | List available personas |
+| `adam_get_persona` | Inspect a persona's structure |
+| `adam_switch_persona` | Switch to a different persona |
+| `adam_generate_persona` | Generate new persona via teacher API |
+
 ## Testing
 
 ```bash
@@ -164,9 +201,9 @@ PYTHONPATH=src python3 -m pytest tests/ -v
 PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 ```
 
-**136 tests** covering all components:
+**193 tests** covering all components:
 - Encoder (VAE forward, loss, sparsity, hardware tier)
-- Memory (working, episodic, semantic, procedural, spatial)
+- Memory (working, episodic, semantic, procedural, spatial, diffmemory)
 - RL core (TD update, actor policy, eligibility traces)
 - SFL (Q-learning, batch, negative reward)
 - Metacognitive controller (MLP policy, REINFORCE)
@@ -175,6 +212,11 @@ PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 - Integration (full chat flow, user detection, reward tracking, SFL updates, episodic memory)
 - Web search (DDGS, Wikipedia, cache, independent methods)
 - Profiles, persona, API endpoints
+- Self-play (metacog gate, RPE path, episodic path, no training calls)
+- MCP server (13 tools registered, canonical methods only)
+- Persona management (generation, switch, heading parsing)
+- Generation config (all 18 params, model overrides, kwargs filtering)
+- **Architecture compliance (57 tests)** — verifies all 10 principles, 14 components, and 4 new systems against architecture.md
 
 ## Documentation
 
