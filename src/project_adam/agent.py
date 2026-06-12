@@ -14,7 +14,7 @@ import logging
 from .config import (BASE_MODEL, MODEL_0_5B,
                      MODEL_CHAIN, DEVICE, HARDWARE_TIER,
                      get_memory_dir, get_4bit_config,
-                     BACKEND_CONFIG, SELF_PLAY_CONFIG)
+                     BACKEND_CONFIG, SELF_PLAY_CONFIG, DIFFMEMORY_CONFIG)
 
 logger = logging.getLogger(__name__)
 from .persona import Persona
@@ -129,6 +129,17 @@ class CognitiveAgent:
         self.sfl_module = SFLModule(n_features=7).to(DEVICE)
         self.td_core = TDCore(n_features=8)
 
+        self.diffmemory = None
+        if DIFFMEMORY_CONFIG.get("enabled"):
+            from .memory.diffmemory import DiffMemory
+            self.diffmemory = DiffMemory(
+                dim=DIFFMEMORY_CONFIG.get("dim", 384),
+                hidden_mult=DIFFMEMORY_CONFIG.get("hidden_mult", 4),
+                max_patterns=DIFFMEMORY_CONFIG.get("max_patterns", 200),
+                surprise_threshold=DIFFMEMORY_CONFIG.get("surprise_threshold", 0.15),
+                device=DEVICE,
+            )
+
         if self.episodic_memory.embedder:
             self.working_memory.set_embedder(self.episodic_memory.embedder)
         self.working_memory.set_episodic_memory(self.episodic_memory)
@@ -145,6 +156,7 @@ class CognitiveAgent:
             embedder=self.episodic_memory.embedder,
             td_core=self.td_core,
             procedural_memory=self.procedural_memory,
+            diffmemory=self.diffmemory,
         )
         self.user_profiles = UserProfileManager()
         self.consolidator.user_profiles = self.user_profiles
@@ -278,6 +290,18 @@ class CognitiveAgent:
         procedural_hint = self.procedural_memory.retrieve(user_input)
         if procedural_hint and self.current_profile:
             self.current_profile.setdefault("procedural_hints", []).append(procedural_hint[:100])
+
+        # DiffMemory retrieval — inject patterns into profile for system prompt
+        if self.diffmemory is not None and self.episodic_memory.embedder is not None:
+            try:
+                emb = self.episodic_memory.encode(user_input)
+                patterns = self.diffmemory.retrieve(emb, k=3)
+                if patterns:
+                    pattern_texts = [p[0] for p in patterns if p[0]]
+                    if pattern_texts:
+                        self.current_profile["memory_patterns"] = pattern_texts
+            except Exception:
+                pass
 
         temperature = self.sfl_module.compute_temperature()
         reply, used_search, web_context, meta_action = self.action_selector.select(

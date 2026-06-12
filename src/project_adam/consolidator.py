@@ -23,13 +23,15 @@ class OfflineConsolidator:
     """
     
     def __init__(self, episodic_memory, semantic_memory, world_model=None,
-                 embedder=None, td_core=None, procedural_memory=None):
+                 embedder=None, td_core=None, procedural_memory=None,
+                 diffmemory=None):
         self.episodic = episodic_memory
         self.semantic = semantic_memory
         self.world_model = world_model
         self.embedder = embedder
         self.td_core = td_core
         self.procedural = procedural_memory
+        self.diffmemory = diffmemory
         self.user_profiles = None
         self._consolidation_count = 0
 
@@ -195,6 +197,30 @@ class OfflineConsolidator:
             except Exception as e:
                 logger.warning(f"[consolidate-abstract] Error: {e}")
 
+    # ========== STEP 3b: DIFFMEMORY UPDATE ==========
+    def _update_diffmemory(self, episodes):
+        """Update differentiable memory with high-reward episode patterns.
+
+        Encodes high-reward episodes through DiffMemory.store() which
+        runs gradient descent on the memory MLP for novel patterns.
+        """
+        if self.diffmemory is None or not episodes:
+            return
+        high_reward = [
+            e for e in episodes
+            if e.get("reward", 0) > 0.4 and len(e.get("text", "")) > 10
+        ]
+        if not high_reward:
+            return
+        texts = [e["text"][:200] for e in high_reward]
+        if self.embedder:
+            try:
+                embs = self.embedder.encode(texts, convert_to_numpy=True)
+                self.diffmemory.store(embs, texts=texts)
+                logger.debug("[consolidate-diffmemory] Stored %d patterns", len(texts))
+            except Exception as e:
+                logger.warning("[consolidate-diffmemory] Error: %s", e)
+
     # ========== STEP 4: PRUNE ==========
     def _prune_memories(self):
         """
@@ -319,6 +345,7 @@ class OfflineConsolidator:
         # ===== STEP 3: ABSTRACT =====
         logger.info("[Step 3] Abstracting repeated patterns into skills...")
         self._abstract_to_skills(episodes)
+        self._update_diffmemory(episodes)
         
         # ===== STEP 4: PRUNE =====
         logger.info("[Step 4] Pruning redundant memories...")

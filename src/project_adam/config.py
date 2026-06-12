@@ -96,6 +96,14 @@ BACKEND_CONFIG = {
     },
 }
 
+DIFFMEMORY_CONFIG = {
+    "enabled": True,
+    "dim": 384,
+    "hidden_mult": 4,
+    "max_patterns": 200,
+    "surprise_threshold": 0.15,
+}
+
 SELF_PLAY_CONFIG = {
     "enabled": False,
     "interval_seconds": 120,

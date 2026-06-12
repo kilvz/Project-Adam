@@ -212,7 +212,6 @@ class TestRLCore:
 
 class TestSFL:
     def test_seven_features(self):
-        from project_adam.sfl import SFLModule
         from project_adam.agent import CognitiveAgent
         src = inspect.getsource(CognitiveAgent._build_sfl_features)
         features = ['majority_opinion', 'expert_endorsement', 'popularity',

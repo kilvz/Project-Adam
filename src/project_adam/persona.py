@@ -169,6 +169,9 @@ class Persona:
             active = [p for p, d in adopted.items() if d.get("count", 0) >= 3]
             if active:
                 parts.append(f"Preferred expressions: {', '.join(active[:5])}")
+            mem_patterns = user_profile.get("memory_patterns", [])
+            if mem_patterns:
+                parts.append("Relevant memories: " + " | ".join(mem_patterns[:3]))
         if known_facts:
             parts.append(f"What you know: {'; '.join(known_facts)}")
         parts.append(

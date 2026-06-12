@@ -3,7 +3,7 @@ from .config import (DEVICE, MODEL_3B, MODEL_1_5B, MODEL_0_5B, BASE_MODEL,
                      BACKEND_CONFIG, HARDWARE_TIER, GPU_VRAM_GB, GPU_COMPUTE_CAP,
                      get_memory_dir, set_memory_dir,
                      load_config, setup_logging, get_4bit_config,
-                     SELF_PLAY_CONFIG)
+                     SELF_PLAY_CONFIG, DIFFMEMORY_CONFIG)
 load_config()
 from .persona import Persona
 from .profiles import UserProfileManager
@@ -40,7 +40,7 @@ __all__ = [
     "BACKEND_CONFIG", "HARDWARE_TIER", "GPU_VRAM_GB", "GPU_COMPUTE_CAP",
     "get_memory_dir", "set_memory_dir",
     "load_config", "setup_logging",
-    "get_cached_agent", "SELF_PLAY_CONFIG", "get_generation_config", "build_gen_kwargs",
+    "get_cached_agent", "SELF_PLAY_CONFIG", "DIFFMEMORY_CONFIG", "get_generation_config", "build_gen_kwargs",
     "Persona", "UserProfileManager",
     "SensoryEncoder", "VisionEncoder", "AudioEncoder",
     "WorkingMemory", "EpisodicMemory", "SemanticMemory",
