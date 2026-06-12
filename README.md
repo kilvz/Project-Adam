@@ -3,12 +3,12 @@
 **A self-learning conversational AI that adapts permanently to each user — powered by the COGNET architecture.**
 
 [![CI](https://github.com/kilvz/Project-Adam/actions/workflows/ci.yml/badge.svg)](https://github.com/kilvz/Project-Adam/actions/workflows/ci.yml)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)
-![Tests](https://img.shields.io/badge/tests-193%20passing-brightgreen)
-![Version](https://img.shields.io/badge/version-1.6.0-blue)
+![Tests](https://img.shields.io/badge/tests-206%20passing-brightgreen)
+![Version](https://img.shields.io/badge/version-1.7.0-blue)
 
-> **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md` by 57 architecture compliance tests. 193 tests total. No stubs, no planned sections — the code is the architecture.
+> **Status: Fully implemented.** All 20 COGNET components exist in `src/project_adam/`, verified against `architecture.md` by 57 architecture compliance tests. 206 tests total. No stubs, no planned sections — the code is the architecture.
 
 Built on Qwen2.5 (0.5B/1.5B/3B) with LoRA fine-tuning, running on consumer GPUs with 4GB+ VRAM. Optionally uses a remote API endpoint for generation while continuing to train via online distillation.
 
@@ -201,7 +201,7 @@ PYTHONPATH=src python3 -m pytest tests/ -v
 PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 ```
 
-**193 tests** covering all components:
+**206 tests** covering all components:
 - Encoder (VAE forward, loss, sparsity, hardware tier)
 - Memory (working, episodic, semantic, procedural, spatial, diffmemory)
 - RL core (TD update, actor policy, eligibility traces)
@@ -216,26 +216,26 @@ PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 - MCP server (13 tools registered, canonical methods only)
 - Persona management (generation, switch, heading parsing)
 - Generation config (all 18 params, model overrides, kwargs filtering)
-- **Architecture compliance (57 tests)** — verifies all 10 principles, 14 components, and 4 new systems against architecture.md
+- **Architecture compliance (57 tests)** — verifies all 10 principles, 20 components, and 4 new systems against architecture.md
 
 ## Documentation
 
 | File | Contents |
 |------|----------|
-| `architecture.md` | COGNET theoretical architecture (294 lines) |
+| `architecture.md` | COGNET theoretical architecture (323 lines) |
 | `docs/setup.md` | Installation, requirements, CUDA setup, config, logging |
 | `docs/usage.md` | CLI, Web UI, Voice mode walkthrough |
 | `docs/api.md` | REST API endpoints + usage examples |
 | `docs/training.md` | LoRA adaptation, RPE, online distillation |
 | `docs/memory.md` | All 6 memory systems in detail |
 | `docs/faq.md` | Troubleshooting and common questions |
-| `docs/wiring-audit.md` | Data flow audit against architecture |
+| `docs/plan-diffmemory-v3.md` | Differentiable memory roadmap |
 
 ## Requirements
 
 - **Minimum**: NVIDIA GPU with 4GB+ VRAM (Pascal or newer) — or use remote API backend
 - **Recommended**: NVIDIA GPU with 8GB+ VRAM (Volta or newer) for local generation
-- Python 3.10+
+- Python 3.12+
 - 6GB disk for Qwen2.5-3B model (~2GB quantized)
 - API key required for remote API endpoint (set `key` in config.yaml)
 
