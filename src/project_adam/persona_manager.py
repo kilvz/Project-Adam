@@ -10,58 +10,127 @@ _GENERATION_TEMPLATE = """Create a detailed persona for "{name}".
 
 {description}
 
-Follow this exact structure:
+Output the persona as a markdown file with the following exact structure. Use "### " (level-3) headings for sections and "#### " for subsections. Follow the format precisely.
+
+# Persona: {name}
+
+## Output Summary
+- **Section 0**: Core Essence
+- **Sections 1-10**: Core persona profile
+- **Section 11**: Platform Adaptation Bank
+
+---
 
 ### 0. Core Essence
+
 - **Identity in 25 words**: ...
 - **Top 3 defining traits**: ...
 - **Primary communication style**: ...
 - **Essential behavioral markers**: ...
 - **Must-have linguistic patterns**: ...
 
+---
+
 ### 1. Biographical Foundation and Personality
+
+Write 3-5 paragraphs of biographical narrative covering early background, formative experiences, defining moments, relationships, and character contradictions.
+
+---
 
 ### 2. Voice / Communication Analysis
 
+Describe speaking style with a table of tone variations across different emotional states. Include pacing, typical utterance length, tonal qualities, and written vs spoken patterns.
+
+---
+
 ### 3. Signature Language Patterns
+
+List common opening phrases, favorite expressions, transitional devices, and grammatical preferences.
+
+---
 
 ### 4. Narrative / Communication Structure
 
+Describe how this persona organizes information — typical argument structure, storytelling techniques, pacing, audience engagement methods.
+
+---
+
 ### 5. Subject Matter Expertise
+
+List core knowledge areas ranked 1-10 with descriptions. Note any deliberate knowledge gaps.
+
+---
 
 ### 6. Philosophical Framework
 
+Describe core beliefs, ethical stances, and how the persona's worldview has evolved over time.
+
+---
+
 ### 7. Emotional Range and Expression
+
+Include a table mapping emotions to behavioral indicators and linguistic markers. Describe humor style and emotional contradictions.
+
+---
 
 ### 8. Distinctive Patterns and Quirks
 
+Numbered list of 5-8 distinctive behavioral or linguistic quirks.
+
+---
+
 ### 9. Evolution Over Time
 
+Describe phases of the persona's development or evolution, with regression patterns if applicable.
+
+---
+
 ### 10. Practical Application Guidelines
+
+List essential elements for accurate emulation, common mistakes to avoid, and a weighted importance table.
+
+---
 
 ### 11. Platform Adaptation Bank
 
 #### Behavioral Rules (If-Then)
-Create at least 15 behavioral rules using the format:
+
+Create at least 15 behavioral rules using numbered format with → arrow:
 1. If [condition] → Then [action]
 2. If [condition] → Then [action]
-...
 
-#### Opening Phrases (at least 5):
-1. ...
-2. ...
+#### Dialogue Examples Bank
 
-#### Closing Phrases (at least 5):
-1. ...
-2. ...
+Include at least 5 dialogue examples covering different scenarios (greeting, knowledge sharing, emotional support, quirk demonstration, philosophy) using markdown blockquotes with > prefix.
 
-#### Signature expressions (at least 15):
+#### Language Pattern Repository
+
+**Opening phrases (at least 15):**
+- ...
+- ...
+
+**Transition phrases (at least 15):**
+- ...
+- ...
+
+**Closing phrases (at least 10):**
+- ...
+- ...
+
+**Signature expressions (at least 20):**
 - ...
 - ...
 """
 
-_SYNTHESIS_TEMPLATE = """Synthesize these {n} persona drafts into one unified persona.
-Combine the best elements from each. Follow the structure exactly.
+_SYNTHESIS_TEMPLATE = """Synthesize these {n} persona drafts into one unified persona markdown file.
+Combine the best elements from each draft. Follow the persona-studio output structure exactly:
+- # Persona: [name] header
+- ## Output Summary with bullet list
+- ### level-3 headings for sections 0-10
+- #### level-4 headings for Platform Adaptation Bank subsections
+- Behavioral rules with numbered "If ... → Then ..." format using → arrow
+- Dialogue examples with > blockquotes
+- Opening, Transition, Closing, Signature expressions as bullet lists
 
 {drafts}
 """

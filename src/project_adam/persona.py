@@ -82,21 +82,24 @@ class Persona:
 
     def _extract_rules(self, text):
         rules = []
-        seen_cond = set()
+        seen = set()
         for line in text.split("\n"):
             stripped = line.strip()
             if "→" not in stripped:
                 continue
             parts = stripped.split("→", 1)
-            cond = parts[0].strip()
+            raw_cond = parts[0].strip()
+            # Strip numbering first, then "If" prefix
+            raw_cond = raw_cond.lstrip("0123456789.").lstrip("*").lstrip("**").strip(" **")
             for prefix in ["- **If", "- If", "If"]:
-                if cond.startswith(prefix):
-                    cond = cond[len(prefix):]
+                if raw_cond.startswith(prefix):
+                    raw_cond = raw_cond[len(prefix):]
                     break
-            cond = cond.lstrip("0123456789.").lstrip("*").lstrip("**").strip(" **")
+            cond = raw_cond.strip()
             action = parts[1].strip().lstrip("**Then ").lstrip("*").lstrip("**").strip(" **")
-            if cond and action and cond not in seen_cond:
-                seen_cond.add(cond)
+            key = (cond, action)
+            if cond and action and key not in seen:
+                seen.add(key)
                 rules.append((cond, action))
         return rules
 
