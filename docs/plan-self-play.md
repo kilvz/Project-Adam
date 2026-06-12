@@ -1,14 +1,17 @@
-# Self-Play Mode — Architecture-Compliant Implementation Plan
+# Self-Play + MCP — Architecture-Compliant Plan
 
 ## Overview
 
-Self-play lets Adam autonomously generate queries, get responses from the teacher API, and learn from them — all without human interaction. A background thread runs continuously, rotating through query strategies derived from Adam's own knowledge gaps.
+Two capabilities that share the same architecture rule:
 
-**Architecture compliance rule**: The thread generates data only. All learning happens through the existing architecture pipeline: `EpisodicMemory` → `OfflineConsolidator.merge_episodes()` (6-step cycle with RPE prioritization) → `_lora_train_step()` (reads from episodic memory). No `train_from_examples()`, no supervised bypass, no parallel training path.
+> **The thread generates data only. The MCP tools submit data only. All learning happens through the existing pipeline: `EpisodicMemory` → `OfflineConsolidator.merge_episodes()` (6-step cycle with RPE prioritization) → `_lora_train_step()`. No `train_from_examples()`, no supervised bypass, no parallel training path.**
+
+1. **Self-play**: daemon thread generates (query, teacher_response) pairs into episodic memory during idle time. The metacog's REPLAY action consolidates them.
+2. **MCP server**: exposes tools for external AIs to query Adam's knowledge (schemas, world model, skills) and submit experiences (episodes, observations, facts, skills) through the same architecture paths.
 
 ---
 
-## 1. New File: `src/project_adam/self_play.py` (~170 lines)
+## Part 1: Self-Play (`src/project_adam/self_play.py`)
 
 ### Class: `SelfPlayLearner`
 
@@ -26,12 +29,10 @@ class SelfPlayLearner:
             ["schema", "world_model", "procedural", "creative"])
         self.checkpoint_interval = config.get("checkpoint_interval", 50)
 
-        # Dedup state — deque(maxlen=200) of recent query strings
         self._query_history = deque(maxlen=200)
         self._checkpoint_path = get_memory_dir() / "self_play_checkpoint.json"
         self._load_checkpoint()
 
-        # Stats — dict that agent.stats() can include
         self.stats = {
             "total_queries": 0,
             "total_trained": 0,
@@ -42,22 +43,23 @@ class SelfPlayLearner:
         }
 ```
 
-### Lifecycle
+### Lifecycle methods
 
 | Method | Purpose |
 |---|---|
 | `start()` | Set event flag, spawn daemon thread, set `stats["running"] = True` |
 | `stop()` | Clear event flag, join thread (timeout=5), save checkpoint, set `running = False` |
 | `_loop()` | Main loop (see below) |
-| `_call_teacher(query) → str` | Calls `agent.language._api_generate([{"role":"user","content":query}])`. Falls back to `_local_generate()` if API fails. Both methods exist at `language.py:51` and `language.py:95`. |
-| `_dedup(queries) → list` | Embeds each query via `agent.episodic_memory.encode()`, checks cosine similarity against `_query_history`. Skips if `>0.85` match to any recent entry. |
+| `_call_teacher(query) → str` | Calls `agent.language._api_generate([{"role":"user","content":query}])`. Falls back to `_local_generate()` if API fails. |
+| `_dedup(queries) → list` | Embeds each query via `agent.episodic_memory.encode()`, checks cosine similarity against `_query_history`. Skips if `>0.85` match. |
 | `_log_stats(strategy, count)` | Updates `stats["total_queries"]`, `stats["current_strategy"]` |
-| `_save_checkpoint()` | JSON dump of `_query_history` + `stats` to `checkpoint_path` |
+| `_save_checkpoint()` | JSON dump of `_query_history` + `stats` |
 | `_load_checkpoint()` | JSON load if exists, else empty |
+| `_trigger_now` | Flag set by agent when metacog selects EXPLORE — next loop iteration runs immediately |
 
-### `_loop()` — the daemon thread body
+### `_loop()` body
 
-```
+```python
 while self._running.is_set():
     for strategy in self.strategies:
         self.stats["current_strategy"] = strategy
@@ -71,9 +73,8 @@ while self._running.is_set():
             if not resp:
                 continue
 
-            # ── ARCHITECTURE PATH: store in episodic memory ──────────
-            # This is the ONLY operation that touches agent state.
-            # The episode flows through the existing pipeline:
+            # ARCHITECTURE PATH: store in episodic memory
+            # The existing pipeline handles training:
             #   merge_episodes() → RPE → _lora_train_step()
             self.agent.episodic_memory.add(
                 text=q,
@@ -84,78 +85,56 @@ while self._running.is_set():
             self._query_history.append(q)
             self.stats["total_queries"] += 1
             self.stats["total_trained"] += 1
-            # ──────────────────────────────────────────────────────────
 
         if self.stats["total_queries"] % self.checkpoint_interval == 0:
             self._save_checkpoint()
 
-    time.sleep(self.interval)
+    time.sleep(self.interval if not self._trigger_now else 0)
+    self._trigger_now = False
 ```
 
-The thread never calls `merge_episodes()`, `_lora_train_step()`, or any training function. The metacog's existing REPLAY action triggers consolidation when appropriate.
+The thread never calls `merge_episodes()`, `_lora_train_step()`, or any training function. The metacog's REPLAY action triggers consolidation.
 
-### Query Generation Strategies — 4 strategies
+### Query generation (4 strategies)
 
 #### Strategy 1: `_queries_from_schemas(n)`
-**Source**: `agent.semantic_memory.schemas` (a `dict[sid, schema]` at `semantic.py:34`)
+**Source**: `agent.semantic_memory.schemas` — dict of `sid → {category, facts[], prediction_error, observed_count}`
 
-Each schema has:
-- `category` — e.g. `"python"`, `"user_preference"`
-- `prediction_error` — float, `1.0` = completely new, `0.0` = perfectly predicted
-- `observed_count` — int, how many times this schema was observed
-- `facts` — list of strings
+Filter: `prediction_error > 0.2` or `observed_count < 3`. Sort descending by prediction_error. Pick top N.
 
-**Selection**: Filter schemas where `prediction_error > 0.2` or `observed_count < 3`. Sort by `prediction_error` descending. Pick top N.
+Template: `"Explain {category} to me. Focus on what I don't know yet."`
 
-**Query template**: `"Explain {category} to me. Focus on what I don't know yet."`
-
-**If no schemas exist**: Generate a generic query like `"Teach me something interesting about science."`
+Fallback if no schemas: `"Teach me something interesting about science."`
 
 #### Strategy 2: `_queries_from_world_model(n)`
-**Source**: `agent.world_model.entities` (a `dict[entity_name, dict[attribute, (mean, var, count)]]` at `world_model.py:9`)
+**Source**: `agent.world_model.entities` — dict of `entity → {attribute: (mean, var, count)}`
 
-Each entity has attributes with Bayesian posterior `(mean, var, count)`. Higher `var` = higher uncertainty.
+For each entity, compute mean `uncertainty()` across all attributes. Sort descending. Pick top N.
 
-**Selection**: For each entity, compute mean `uncertainty()` across all attributes via `self.agent.world_model.uncertainty(entity, attr)` (method at `world_model.py:95`). Sort entities by mean uncertainty descending. Pick top N.
+Template: `"What is {entity}? I want to understand it better."`
 
-**Query template**: `"What is {entity}? I want to understand it better."`
-
-**If no entities exist**: Fall back to creative strategy.
+Fallback if no entities: use creative strategy.
 
 #### Strategy 3: `_queries_from_procedural_gaps(n)`
-**Source**: `agent.procedural_memory.skills` (a `dict[skill_id, Skill]` at `procedural.py:77`)
+**Source**: `agent.procedural_memory.skills` — dict of `skill_id → Skill` with `.q_value`, `.success_rate`, `.keywords`
 
-Each `Skill` object has:
-- `.q_value` — float 0-1, learned quality of the skill
-- `.success_rate` — float 0-1, `success_count / total_count`
-- `.keywords` — `set[str]` of context words from training
-- `.action` — str, the stored action/response
+Filter: `q_value < 0.3` or `success_rate < 0.5`. Sort ascending by q_value. Pick top N.
 
-**Selection**: Filter skills where `q_value < 0.3` or `success_rate < 0.5`. Sort by `q_value` ascending. Pick top N.
+Template: `"How do I handle {keywords}? I've struggled with this."`
 
-**Query template**: `"How do I handle {keywords}? I've struggled with this."`
-
-**If no skills exist**: Fall back to creative strategy.
+Fallback if no skills: use creative strategy.
 
 #### Strategy 4: `_queries_creative(n)`
-**Source**: Teacher API itself
+Ask the teacher API: `"Suggest a topic for me to learn about. Give me one specific concept I should explore."`
 
-Ask the teacher to suggest a topic. The teacher's reply becomes both the training context and target.
+Use the teacher's response as both query and target (store with response as action).
 
-**Query to teacher**: `"Suggest a topic for me to learn about. Give me one specific concept I should explore."`
-
-Process the response: use the response *as* the query text, then ask the teacher to elaborate. Or simpler: use the response directly as the "query" and store it with the teacher's own response as the "action".
-
-**Alternative approach** (simpler): Generate a query from a fixed list or by prompting the local model with `"Generate a question about something you want to learn."`
-
----
-
-### Dedup Implementation
+### Dedup
 
 ```python
 def _dedup(self, queries):
     if not self._query_history or not self.agent.episodic_memory.embedder:
-        return queries  # no embedder = skip dedup
+        return queries
     result = []
     for q in queries:
         q_emb = self.agent.episodic_memory.encode(q)
@@ -173,9 +152,371 @@ def _dedup(self, queries):
 
 ---
 
-## 2. Changes to `agent.py` (~20 lines)
+## Part 2: MCP Server (`src/project_adam/mcp_server.py`)
 
-### In `__init__()` — add after all components initialized (~line 129)
+### Shared agent singleton
+
+Add to `src/project_adam/__init__.py`:
+
+```python
+_AGENT_CACHE = None
+
+def get_cached_agent():
+    global _AGENT_CACHE
+    if _AGENT_CACHE is None:
+        from .agent import CognitiveAgent
+        _AGENT_CACHE = CognitiveAgent()
+    return _AGENT_CACHE
+```
+
+Update `api.py` to use `from . import get_cached_agent as get_agent` instead of its local singleton.
+
+### MCP Server structure
+
+```python
+"""MCP server for querying Adam's knowledge and submitting learning experiences."""
+
+import logging
+import math
+from mcp.server import FastMCP
+
+logger = logging.getLogger(__name__)
+
+mcp = FastMCP("Project Adam",
+    instructions="Query Adam's knowledge and submit experiences through his learning architecture.")
+
+_agent = None
+
+def _get_agent():
+    global _agent
+    if _agent is None:
+        from . import get_cached_agent
+        _agent = get_cached_agent()
+    return _agent
+```
+
+### Knowledge Query Tools (read-only)
+
+#### `adam_query_knowledge(topic: str) -> dict`
+
+Search all memory systems for knowledge about a topic.
+
+```python
+@mcp.tool(description="Search semantic schemas, world model, and procedural skills for knowledge about a topic.")
+def adam_query_knowledge(topic: str) -> dict:
+    """Search all memory systems for knowledge about a topic.
+
+    Args:
+        topic: The concept or entity to search for.
+
+    Returns:
+        Dict with schemas, world model beliefs, skills, and counts.
+    """
+    agent = _get_agent()
+    tl = topic.lower()
+
+    schemas = []
+    for sid, s in agent.semantic_memory.schemas.items():
+        if tl in s.get("category", "").lower() or any(tl in f.lower() for f in s.get("facts", [])):
+            schemas.append({
+                "id": sid, "category": s["category"],
+                "facts": s["facts"][-5:],
+                "prediction_error": round(s.get("prediction_error", 1.0), 3),
+                "observed_count": s.get("observed_count", 0),
+                "slots": dict(s.get("slots", {})),
+            })
+
+    entities = {}
+    for entity, attrs in agent.world_model.entities.items():
+        if tl in entity:
+            entities[entity] = {
+                a: {"mean": round(m, 3), "uncertainty": round(math.sqrt(v), 3), "observations": c}
+                for a, (m, v, c) in attrs.items()
+            }
+
+    skills = []
+    for sid, skill in agent.procedural_memory.skills.items():
+        if tl in " ".join(skill.keywords).lower():
+            skills.append({
+                "id": sid,
+                "action": skill.action[:200],
+                "q_value": round(skill.q_value, 3),
+                "success_rate": round(skill.success_rate, 3),
+                "usage_count": skill.usage_count,
+            })
+
+    return {
+        "topic": topic,
+        "schemas": schemas, "schema_count": len(schemas),
+        "world_entities": entities, "entity_count": len(entities),
+        "skills": skills, "skill_count": len(skills),
+    }
+```
+
+#### `adam_explain_entity(entity_name: str) -> dict`
+
+Detailed view of a specific entity in the Bayesian world model.
+
+```python
+@mcp.tool(description="Get Adam's Bayesian posterior beliefs about a specific entity.")
+def adam_explain_entity(entity_name: str) -> dict:
+    """Get Adam's Bayesian posterior beliefs about a specific entity.
+
+    Args:
+        entity_name: The entity to look up (case-insensitive).
+
+    Returns:
+        Dict with attribute-level means, uncertainties, observation counts.
+    """
+    agent = _get_agent()
+    ent = agent.world_model.entities.get(entity_name.lower())
+    if not ent:
+        return {"entity": entity_name, "found": False}
+    attributes = {
+        a: {"mean": round(m, 3), "uncertainty": round(math.sqrt(v), 3), "observations": c}
+        for a, (m, v, c) in ent.items()
+    }
+    return {
+        "entity": entity_name, "found": True,
+        "attributes": attributes,
+        "total_observations": sum(c for _, _, c in ent.values()),
+    }
+```
+
+#### `adam_get_status() -> dict`
+
+Stats across all memory systems.
+
+```python
+@mcp.tool(description="Return statistics about Adam's memory systems and self-play state.")
+def adam_get_status() -> dict:
+    """Return statistics about Adam's memory systems and self-play state."""
+    agent = _get_agent()
+    ep_count = len(agent.episodic_memory.episodes)
+    skills = agent.procedural_memory.skills
+    status = {
+        "memory": {
+            "episodic_episodes": ep_count,
+            "semantic_schemas": len(agent.semantic_memory.schemas),
+            "world_entities": len(agent.world_model.entities),
+            "procedural_skills": len(skills),
+        },
+        "learning": {
+            "avg_skill_q": round(sum(s.q_value for s in skills.values()) / max(len(skills), 1), 3),
+            "avg_skill_success": round(sum(s.success_rate for s in skills.values()) / max(len(skills), 1), 3),
+        },
+        "self_play": {},
+    }
+    if agent.self_play is not None:
+        status["self_play"] = dict(agent.self_play.stats)
+    else:
+        status["self_play"] = {"running": False}
+    return status
+```
+
+### Teaching Tools (write via architecture paths)
+
+#### `adam_teach(query: str, response: str, reward: float = 0.85) -> dict`
+
+Submit a (query, response) learning pair. Stored in episodic memory — processed by the next consolidation cycle.
+
+```python
+@mcp.tool(description="Teach Adam by submitting a (query, response) pair. Stored in episodic memory, processed during consolidation.")
+def adam_teach(query: str, response: str, reward: float = 0.85) -> dict:
+    """Teach Adam by submitting a (query, response) learning pair.
+
+    Architecture path: EpisodicMemory.add() → merge_episodes() → _lora_train_step().
+    Same path as human chat. No bypass.
+
+    Args:
+        query: The question or context.
+        response: The correct/expert response.
+        reward: Quality signal (0.0-1.0, default 0.85).
+
+    Returns:
+        Dict confirming storage.
+    """
+    agent = _get_agent()
+    r = max(0.0, min(1.0, reward))
+    agent.episodic_memory.add(text=query, reward=r, action=response, context="mcp_teach")
+    return {
+        "status": "stored", "query_len": len(query), "response_len": len(response),
+        "reward": r, "total_episodes": len(agent.episodic_memory.episodes),
+    }
+```
+
+#### `adam_observe_entity(entity: str, attribute: str, value: float, confidence: float = 1.0) -> dict`
+
+Submit an observation for Adam's Bayesian world model.
+
+```python
+@mcp.tool(description="Submit an observation for Adam's Bayesian world model. Updates posterior belief via conjugate Gaussian.")
+def adam_observe_entity(entity: str, attribute: str, value: float, confidence: float = 1.0) -> dict:
+    """Submit an observation for Adam's Bayesian world model.
+
+    Architecture path: WorldModel.observe() → conjugate Gaussian posterior update.
+    Same path as observe_from_text(). No bypass.
+
+    Args:
+        entity: Entity name (e.g., "python", "Einstein").
+        attribute: Attribute being observed (e.g., "difficulty", "intelligence").
+        value: Observed value (numeric).
+        confidence: Reliability (0.0-1.0, default 1.0).
+
+    Returns:
+        Dict with updated posterior mean, uncertainty, and count.
+    """
+    agent = _get_agent()
+    agent.world_model.observe(entity, attribute, value, confidence=confidence)
+    mean, var, count = agent.world_model.entities.get(entity.lower(), {}).get(attribute, (0, 1, 0))
+    return {
+        "status": "observed", "entity": entity.lower(), "attribute": attribute,
+        "posterior_mean": round(mean, 3),
+        "posterior_uncertainty": round(math.sqrt(var), 3),
+        "observations": count,
+    }
+```
+
+#### `adam_teach_fact(category: str, fact: str) -> dict`
+
+Submit a fact for semantic memory. Integrated via assimilation/accommodation.
+
+```python
+@mcp.tool(description="Submit a fact for semantic memory. Integrated via Piaget assimilation/accommodation.")
+def adam_teach_fact(category: str, fact: str) -> dict:
+    """Submit a fact for semantic memory.
+
+    Architecture path: SemanticMemory.add() → assimilation/accommodation.
+    If similarity ≥ 0.75 to existing schema → assimilate (update slots).
+    If < 0.75 → accommodate (new schema with prediction_error=1.0).
+
+    Args:
+        category: Knowledge domain (e.g., "science", "user_preference").
+        fact: The factual statement (e.g., "Python is dynamically typed").
+
+    Returns:
+        Dict with schema ID, prediction error, and observed count.
+    """
+    agent = _get_agent()
+    sid = agent.semantic_memory.add(category, fact)
+    schema = agent.semantic_memory.schemas.get(sid, {})
+    return {
+        "status": "stored", "schema_id": sid, "category": category,
+        "prediction_error": round(schema.get("prediction_error", 1.0), 3),
+        "observed_count": schema.get("observed_count", 0),
+        "facts": schema.get("facts", [])[-3:],
+    }
+```
+
+#### `adam_teach_skill(context: str, action: str, reward: float = 0.8) -> dict`
+
+Submit a procedural skill example.
+
+```python
+@mcp.tool(description="Submit a procedural skill example. Recorded with Q-learning and automatic chunking of repeated patterns.")
+def adam_teach_skill(context: str, action: str, reward: float = 0.8) -> dict:
+    """Submit a procedural skill example.
+
+    Architecture path: ProceduralMemory.record() → keyword matching → Q-value update.
+    Repeated patterns are automatically chunked into macro-actions.
+
+    Args:
+        context: The situation or trigger.
+        action: The skill/response to learn.
+        reward: How successful (0.0-1.0, default 0.8).
+
+    Returns:
+        Dict confirming storage with skill counts.
+    """
+    agent = _get_agent()
+    agent.procedural_memory.record(context, action, reward)
+    return {
+        "status": "stored", "context_len": len(context), "action_len": len(action),
+        "reward": reward,
+        "total_skills": len(agent.procedural_memory.skills),
+        "total_chunks": len(agent.procedural_memory._chunks),
+    }
+```
+
+### Learning Trigger Tools
+
+#### `adam_consolidate(rpe: float = 1.0) -> dict`
+
+Run the full 6-step consolidation cycle.
+
+```python
+@mcp.tool(description="Run the full 6-step consolidation cycle on all accumulated episodes (human + MCP-taught).")
+def adam_consolidate(rpe: float = 1.0) -> dict:
+    """Run the full 6-step cognitive consolidation cycle.
+
+    Steps:
+    1. Replay: sample episodes from memory
+    2. Prioritize: high-RPE events first
+    3. Abstract: compress repeated patterns into schemata
+    4. Prune: remove redundant/noisy memories
+    5. Update world model: Bayesian update
+    6. Update procedural policies: offline RL
+
+    Same path as the metacog's REPLAY action.
+
+    Args:
+        rpe: Reward prediction error weight (default 1.0).
+
+    Returns:
+        Dict with pre/post consolidation stats.
+    """
+    agent = _get_agent()
+    if not agent.episodic_memory.episodes:
+        return {"status": "no_episodes", "episode_count": 0}
+    before = len(agent.episodic_memory.episodes)
+    agent.consolidator.merge_episodes(rpe=rpe)
+    return {
+        "status": "done",
+        "episodes_before": before,
+        "episodes_after": len(agent.episodic_memory.episodes),
+        "skills": agent.procedural_memory.stats(),
+        "schemas": len(agent.semantic_memory.schemas),
+        "world_entities": len(agent.world_model.entities),
+    }
+```
+
+#### `adam_self_play(action: str = "status") -> dict`
+
+Control the autonomous self-play loop.
+
+```python
+@mcp.tool(description="Start, stop, restart, or check status of the autonomous self-play learning loop.")
+def adam_self_play(action: str = "status") -> dict:
+    """Control the autonomous self-play background thread.
+
+    The thread generates (query, teacher_response) pairs into episodic memory
+    during idle time. The metacog's REPLAY action consolidates them through
+    the full 6-step cycle.
+
+    Args:
+        action: "start", "stop", "restart", or "status" (default).
+
+    Returns:
+        Dict with loop state and training stats.
+    """
+    agent = _get_agent()
+    return agent.toggle_self_play(action)
+```
+
+### Entry point
+
+```python
+def run_stdio():
+    """Run MCP server over stdio for subprocess integration."""
+    import asyncio
+    asyncio.run(mcp.run_stdio_async())
+```
+
+---
+
+## Part 3: Changes to `agent.py`
+
+### In `__init__()` — add after all components initialized (~line 143)
 
 ```python
 from .self_play import SelfPlayLearner
@@ -195,10 +536,10 @@ def toggle_self_play(self, action="status"):
     """Control the self-play background thread.
 
     Args:
-        action: "start", "stop", "restart", or "status" (default)
+        action: "start", "stop", "restart", or "status" (default).
 
     Returns:
-        dict with loop state and training stats.
+        Dict with loop state and training stats.
     """
     if self.self_play is None:
         if action == "start":
@@ -221,21 +562,22 @@ def toggle_self_play(self, action="status"):
             "stats": self.self_play.stats}
 ```
 
-### In `chat()` — optional trigger boost (line 273-274)
-
-The existing metacog-driven REPLAY at `agent.py:273-274` already consolidates all episodes (human + self-play). This needs no change. But we add a lightweight hook: if the metacog selects `EXPLORE` and self-play is running, the agent nudges the thread to generate more aggressively (skip the sleep interval on the next iteration). Implemented via a simple flag on `SelfPlayLearner`:
+### In `chat()` — EXPLORE nudge (line 273-274)
 
 ```python
-# In agent.py chat(), inside the EXPLORE branch:
+# After the existing REPLAY check:
+if meta_action == "REPLAY":
+    self.consolidator.merge_episodes(rpe=rpe)
+# Add EXPLORE nudge:
 if meta_action == "EXPLORE" and self.self_play is not None:
-    self.self_play._trigger_now = True  # next loop iteration runs immediately
+    self.self_play._trigger_now = True
 ```
 
 ---
 
-## 3. Changes to `config.py` (~15 lines)
+## Part 4: Changes to `config.py`
 
-### New module-level block (before `_detect_hardware()`)
+### New module-level block
 
 ```python
 SELF_PLAY_CONFIG = {
@@ -249,28 +591,25 @@ SELF_PLAY_CONFIG = {
 }
 ```
 
-### In `load_config()`, add parsing after backend config block (after `BACKEND_CONFIG["mode"] = mode`)
+### In `load_config()`, add parsing after backend config
 
 ```python
 sp = cfg.get("self_play", {})
 if sp:
     SELF_PLAY_CONFIG.update({
         "enabled": sp.get("enabled", SELF_PLAY_CONFIG["enabled"]),
-        "interval_seconds": sp.get("interval_seconds",
-                                    SELF_PLAY_CONFIG["interval_seconds"]),
+        "interval_seconds": sp.get("interval_seconds", SELF_PLAY_CONFIG["interval_seconds"]),
         "batch_size": sp.get("batch_size", SELF_PLAY_CONFIG["batch_size"]),
         "strategies": sp.get("strategies", SELF_PLAY_CONFIG["strategies"]),
-        "max_recent_queries": sp.get("max_recent_queries",
-                                      SELF_PLAY_CONFIG["max_recent_queries"]),
+        "max_recent_queries": sp.get("max_recent_queries", SELF_PLAY_CONFIG["max_recent_queries"]),
         "reward": sp.get("reward", SELF_PLAY_CONFIG["reward"]),
-        "checkpoint_interval": sp.get("checkpoint_interval",
-                                       SELF_PLAY_CONFIG["checkpoint_interval"]),
+        "checkpoint_interval": sp.get("checkpoint_interval", SELF_PLAY_CONFIG["checkpoint_interval"]),
     })
 ```
 
 ---
 
-## 4. Changes to `config.yaml` (~8 lines)
+## Part 5: Changes to `config.yaml`
 
 ```yaml
 self_play:
@@ -287,68 +626,66 @@ self_play:
 
 ---
 
-## 5. Changes to `api.py` (~15 lines) — optional manual control
+## Part 6: Changes to `__init__.py` and `api.py`
 
-Add endpoint to the existing FastAPI server (`api.py`), not a new MCP server:
+### `__init__.py` — add shared agent cache
 
 ```python
-@app.post("/v1/self_play")
-async def control_self_play(action: str = "status"):
-    """Control Adam's autonomous self-play learning loop.
+_AGENT_CACHE = None
 
-    Actions: "start", "stop", "restart", "status"
-    """
-    agent = get_agent()
-    return agent.toggle_self_play(action)
+def get_cached_agent():
+    global _AGENT_CACHE
+    if _AGENT_CACHE is None:
+        from .agent import CognitiveAgent
+        _AGENT_CACHE = CognitiveAgent()
+    return _AGENT_CACHE
+```
+
+### `api.py` — use shared agent
+
+Remove local `_agent = None` and local `get_agent()`. Replace with:
+
+```python
+from . import get_cached_agent
+
+def get_agent():
+    return get_cached_agent()
 ```
 
 ---
 
-## Architecture Compliance Verification
+## Part 7: Changes to `__main__.py`
 
-| Architecture requirement | Location in architecture.md | How this plan satisfies it |
-|---|---|---|
-| **RPE drives all learning** | Section 4a: "δ = R + γ·V(s') - V(s) — RPE drives all learning" | Self-play episodes stored with `reward=0.85`. `OfflineConsolidator._td_replay_prioritized()` computes RPE from them (`consolidator.py:46-84`). The same `_lora_train_step()` trains on them (`agent.py:370-406`). |
-| **Metacog controls when to explore/replay** | Section 5: "Strategy selection — when to explore, when to ask for help" | The daemon thread is data generation only. It never calls `merge_episodes()`. The metacog's existing REPLAY action at `agent.py:273-274` triggers consolidation on all episodes (human + self-play). EXPLORE action at `agent.py:266` nudges the thread. |
-| **Consolidation is the only "sleep" mechanism** | Section 7: "1. Replay → 2. Prioritize → 3. Abstract → 4. Prune → 5. Update world model → 6. Update procedural policies" | Self-play doesn't have its own training loop. `merge_episodes()` runs the full 6-step cycle, processing self-play episodes identically to human ones. Verified: `consolidator.py:300-350`. |
-| **Language as evidence for world model** | Section 4d: "P(model\|experience, language) ∝ P(experience\|model) · P(language\|model) · P(model)" | Teacher responses stored as episodes. During consolidation, `_update_world_model()` at `consolidator.py:211-232` feeds them into `world_model.observe_from_text()`. |
-| **Episodic memory stores (state, action, reward, context) tuples** | Section 3a | Self-play episodes are stored via `episodic_memory.add(text=q, reward=0.85, action=resp, context="self_play")`. Matches the existing signature at `episodic.py:50-51`. |
-| **Dual-system action selection** | Section 7: "Model-Free + Model-Based" | Self-play bypassed entirely — it generates data, doesn't select actions. The action selection system is unaffected. |
-| **No supervised bypass** | Section 1: "minimize I(X;Z) while maximizing reward" | No `train_from_examples()`. No direct LoRA optimizer calls. The path is strictly: `episodic_memory.add()` → `merge_episodes()` → `_lora_train_step()`. |
+```python
+if "--mcp" in sys.argv:
+    from .mcp_server import run_stdio
+    run_stdio()
+```
 
 ---
 
-## What the plan explicitly does NOT do
+## Architecture Compliance Matrix
 
-| Rejected approach | Why |
-|---|---|
-| `train_from_examples(pairs, reward)` | Would bypass episodic → consolidation → RPE pipeline. Creates a supervised learning path that violates Section 4a. |
-| Persistent `_get_optimizer()` | The code creates a fresh `AdamW` each `_lora_train_step()` at `agent.py:384`. The plan uses this existing behavior. Verified: the fresh optimizer works fine for batched training. |
-| MCP server (`mcp_server.py`) | Self-play control goes through the existing FastAPI (`api.py`) or `toggle_self_play()` method. MCP would add a protocol layer with no benefit. |
-| Daemon thread calling `merge_episodes()` | Consolidation is metacog-controlled (Section 5). The thread generates data; the metacog decides when to consolidate. |
-| `teacher_generate()` on LanguageInterface | Not needed. `LanguageInterface._api_generate(messages)` at `language.py:51` is public — self-play calls it directly with the right message format. |
-| Creative strategy asking teacher for topics then re-asking | Simplified: creative strategy uses the teacher's response directly as training data, or uses a fixed prompt list as fallback. |
-
----
-
-## Files Changed Summary
-
-| File | Lines Added | Type |
+| Component | Architecture reference | How this plan satisfies it |
 |---|---|---|
-| `src/project_adam/self_play.py` | ~170 | **New file** — `SelfPlayLearner` class with loop, query generation (4 strategies), dedup, checkpoint |
-| `src/project_adam/agent.py` | ~20 | Edit — import + `__init__` auto-start + `toggle_self_play()` + EXPLORE nudge |
-| `src/project_adam/config.py` | ~15 | Edit — `SELF_PLAY_CONFIG` block + `load_config()` parsing |
-| `src/project_adam/api.py` | ~15 | Edit — `POST /v1/self_play` endpoint for manual control |
-| `config.yaml` | ~8 | Edit — `self_play:` section |
-| **Total** | **~228** | |
+| **Self-play thread** | Section 7 — "Offline consolidation during sleep" | Thread generates data only. Never calls training functions. Metacog controls consolidation trigger. |
+| **MCP adam_teach** | Section 3a — "(state, action, reward, context) tuples" | Stores via `episodic_memory.add()`. Same path as `chat()`. |
+| **MCP adam_observe_entity** | Section 4d — "Bayesian update: P(model\|evidence)" | Calls `world_model.observe()` which does conjugate Gaussian posterior update. |
+| **MCP adam_teach_fact** | Section 3b — "assimilation/accommodation" | Calls `semantic_memory.add()` which runs the full Piaget integration. |
+| **MCP adam_teach_skill** | Section 3c — "Learned via RL, supports chunking" | Calls `procedural_memory.record()` with Q-learning update. |
+| **MCP adam_consolidate** | Section 7 — full 6-step cycle | Calls `consolidator.merge_episodes()` — identical to REPLAY path. |
+| **MCP adam_query_knowledge** | Section 3b/3c/4d — read-only | Reads in-memory data structures. No state mutation. |
+| **No supervised bypass** | Section 4a — "RPE drives all learning" | No tool accepts arbitrary weights or calls `_lora_train_step()` directly. |
 
 ---
 
 ## Implementation Order
 
-1. `src/project_adam/self_play.py` — the full `SelfPlayLearner` class
-2. `src/project_adam/config.py` — config block + load parsing
-3. `config.yaml` — default config (enabled: true)
-4. `src/project_adam/agent.py` — import + init + toggle + EXPLORE nudge
-5. `src/project_adam/api.py` — `POST /v1/self_play` endpoint
-6. Test: verify thread starts, generates queries, stores in episodic memory, doesn't crash
+1. `src/project_adam/config.py` — add `SELF_PLAY_CONFIG` block + load parsing
+2. `config.yaml` — add `self_play:` section
+3. `src/project_adam/self_play.py` — `SelfPlayLearner` class
+4. `src/project_adam/agent.py` — import + init + `toggle_self_play()` + EXPLORE nudge
+5. `src/project_adam/__init__.py` — add `get_cached_agent()`
+6. `src/project_adam/api.py` — use shared agent singleton
+7. `src/project_adam/mcp_server.py` — FastMCP with 9 tools
+8. `src/project_adam/__main__.py` — add `--mcp` flag
