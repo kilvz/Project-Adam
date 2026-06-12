@@ -102,7 +102,7 @@ backend:
 
 ## Architecture
 
-![COGNET Architecture](architecture.md)
+See [COGNET Architecture](architecture.md) for the full specification.
 
 ```
 Metacognitive Controller ─┬─ Sensory Encoder (β-VAE, top-10% sparse, learned prior)
