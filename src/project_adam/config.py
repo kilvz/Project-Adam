@@ -39,9 +39,9 @@ GENERATION_CONFIG = {
 BACKEND_CONFIG = {
     "mode": "local",
     "api": {
-        "endpoint": "https://external.ai/zen/v1/chat/completions",
+        "endpoint": "https://<remoteapibackend>/v1/chat/completions",
         "key": "",
-        "model": "External",
+        "model": "remote-model",
         "timeout": 15,
     },
 }

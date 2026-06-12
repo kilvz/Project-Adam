@@ -68,7 +68,7 @@ Model size options in `config.yaml`:
 
 ### API Mode
 
-Routes generation through external's public endpoint (`External` model). ~2-5s response time. Falls back to local on network failure.
+Routes generation through a remote API endpoint. ~2-5s response time. Falls back to local on network failure.
 
 ```yaml
 backend:
@@ -83,7 +83,7 @@ Local model still loads for LoRA training (online distillation).
 |---------|---------------|------------|
 | Local 1.5B 4-bit | ~15s (cold start) | ~5-15s |
 | Local 0.5B fp16 | ~5s | ~2-5s |
-| API (External) | ~3s | ~3s |
+| API (remote) | ~3s | ~3s |
 
 ## Data Locations
 

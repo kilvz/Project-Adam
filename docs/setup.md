@@ -25,7 +25,7 @@ Project-Adam/
 ├── remotearchitecture.md        # Remote API integration layer
 ├── config.yaml                  # User-editable config
 ├── start_adam.sh                # Launch script with auto-GPU-cleanup
-├── external.json                # external provider config
+├── external.json                # Remote API provider config
 ├── src/project_adam/
 │   ├── __init__.py              # Public API, calls load_config()
 │   ├── __main__.py              # Entry point (CLI arg parsing)
@@ -92,9 +92,9 @@ generation:
 backend:
   mode: "local"                  # "local" or "api"
   api:
-    endpoint: "https://external.ai/zen/v1/chat/completions"
+    endpoint: "https://<remoteapibackend>/v1/chat/completions"
     key: ""
-    model: "External"
+    model: "remote-model"
     timeout: 15
 ```
 
@@ -114,9 +114,8 @@ python3 -m project_adam --voice
 ./start_adam.sh
 # or: PYTHONPATH=src uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
 
-# With external
-# export LOCAL_ENDPOINT="http://localhost:8765/v1"
-# Then select "Adam (COGNET)" from external's model picker (Ctrl+P)
+# With remote API client
+# export API_ENDPOINT="http://localhost:8765/v1"
 ```
 
 ## First Run
@@ -138,5 +137,5 @@ PYTHONPATH=src python3 -m pytest tests/    # 132 tests
 |---------|----------|
 | CUDA out of memory | Switch to 0.5B model or use `backend.mode: api` |
 | CUBLAS_STATUS_ALLOC_FAILED | Run `./start_adam.sh` (clears GPU context) |
-| external timeout | Set `"timeout": 120000` in external.json provider options |
+| API timeout | Set `"timeout": 120000` in provider configuration |
 | Module not found | Run `pip install -e .` or set `PYTHONPATH=src` |

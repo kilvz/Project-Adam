@@ -8,7 +8,7 @@
 
 > **Status: Fully implemented.** All 14 COGNET components exist in `src/project_adam/`, verified against `architecture.md`, with 136 passing tests. No stubs, no planned sections — the code is the architecture.
 
-Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses remote API endpoint for generation while continuing to train the local model via online distillation.
+Built on a 4-bit Qwen2.5-3B-Instruct model with LoRA fine-tuning, running entirely on consumer hardware (NVIDIA GTX 1050, 4GB VRAM). Optionally uses a remote API endpoint for generation while continuing to train the local model via online distillation.
 
 ## Features
 
@@ -70,11 +70,11 @@ curl -X POST http://localhost:8765/v1/chat/completions \
   -d '{"model":"adam-cognet","messages":[{"role":"user","content":"Hello"}],"stream":false}'
 ```
 
-### Use with openai compatible chat UI
+### Use with remote API
 
 ```bash
-export LOCAL_ENDPOINT="http://localhost:8765/v1"
-
+export API_ENDPOINT="http://localhost:8765/v1"
+```
 ```
 
 ### Use remote API backend
@@ -85,7 +85,7 @@ backend:
   mode: "auto"  # auto-detects: low hardware → API, mid/high → local
   api:
     endpoint: "https://<remoteapibackend>/v1/chat/completions"
-    key: ""                    # endpointkey
+    key: ""
     model: "ai-model"
 ```
 
@@ -122,7 +122,7 @@ Qwen2.5-3B at 4-bit NF4 (~2.1GB VRAM). Falls back to 1.5B → 0.5B if unavailabl
 
 ### Remote API
 
-`<remoteapibackend>/v1/chat/completions` with `ai-model`. API key required. Falls back to local model on failure. In `auto` mode, low-tier hardware automatically uses the API.
+Remote API endpoint configured in `config.yaml`. Falls back to local model on failure. In `auto` mode, low-tier hardware automatically uses the API.
 
 ### Training
 
@@ -194,7 +194,7 @@ PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 - Python 3.10+
 - NVIDIA GPU with 4GB+ VRAM (GTX 1050 minimum) — or use remote API backend
 - 6GB disk for Qwen2.5-3B model (~2GB quantized)
-- No API key needed for external remote endpoint
+- No API key needed for remote API endpoint
 
 ## License
 

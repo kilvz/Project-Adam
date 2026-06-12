@@ -4,7 +4,7 @@
 
 **Q: Why is Adam so slow locally?**
 
-A: GTX 1050 (Pascal, sm_61) doesn't support efficient 4-bit dequantization kernels. Use `backend.mode: api` in config.yaml for fast responses via external's endpoint.
+A: GTX 1050 (Pascal, sm_61) doesn't support efficient 4-bit dequantization kernels. Use `backend.mode: api` in config.yaml for fast responses via a remote API endpoint.
 
 **Q: Why does Adam sound like an assistant?**
 
@@ -18,15 +18,15 @@ A: Yes. User profiles with name, topics, sentiment history, custom rules, and Lo
 
 **Q: What does the "backend" config do?**
 
-A: Two modes: `local` runs Qwen on your GPU; `api` routes generation through `external.ai/zen/v1/chat/completions` (External model). LoRA training continues regardless.
+A: Two modes: `local` runs Qwen on your GPU; `api` routes generation through a remote API endpoint. LoRA training continues regardless.
 
 **Q: What port does the API use?**
 
 A: Default is 8765 (not 8000 — port 8000 is often taken by printer services). Set via `ADAM_PORT=8000 ./start_adam.sh`.
 
-**Q: How do I connect external?**
+**Q: How do I connect a remote API client?**
 
-A: Adam is registered as a provider in `external.json`. Just select "Adam (COGNET)" from external's model picker (Ctrl+P). Port and timeout are preconfigured.
+A: Point your OpenAI-compatible client to `http://localhost:8765/v1`. The server provides `GET /v1/models` and `POST /v1/chat/completions`.
 
 **Q: Why does the first request take 15 seconds?**
 
@@ -46,9 +46,9 @@ A: Already fixed — `check_same_thread=False` is set on all connections.
 
 A: The model failed to load (OOM). The agent now tolerates this — it sets `model=None` and continues in API-only mode. Switch to API backend or a smaller model.
 
-**Q: external shows "Internal Server Error"**
+**Q: API shows "Internal Server Error"**
 
-A: Increase `timeout` in `external.json` provider options to `120000` (2 minutes). The first request includes model loading time.
+A: Increase `timeout` in config.yaml under `backend.api.timeout`. The first request includes model loading time.
 
 ## Architecture
 

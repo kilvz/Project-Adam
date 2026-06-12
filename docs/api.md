@@ -88,13 +88,9 @@ data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":
 data: [DONE]
 ```
 
-### external Integration
+### Remote API Integration
 
-The server is registered as an external provider in both:
-- Project-level: `external.json`
-- Global: `~/.config/external/external.jsonc`
-
-Select **"Adam (COGNET)"** from external's model picker (Ctrl+P).
+The server provides an OpenAI-compatible API at `http://localhost:8765/v1`. Configure your client to use this endpoint.
 
 ## Legacy Endpoints
 
@@ -162,4 +158,4 @@ backend:
 ```
 
 In **local** mode, generation runs on the local Qwen model (loaded on GPU).
-In **api** mode, generation goes through the external public endpoint (`External` model). Falls back to local if the API is unreachable.
+In **api** mode, generation goes through the remote API endpoint configured in `config.yaml`. Falls back to local if the API is unreachable.

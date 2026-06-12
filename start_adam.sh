@@ -50,7 +50,7 @@ GPU_AFTER=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null
 echo "GPU memory: ${GPU_BEFORE:-?} MiB → ${GPU_AFTER:-?} MiB"
 
 echo "Starting Project Adam API server on $HOST:$PORT ..."
-echo "Connect external: export LOCAL_ENDPOINT=http://localhost:$PORT/v1"
+echo "API: http://localhost:$PORT/v1"
 echo ""
 
 PYTHONPATH=src nohup uvicorn project_adam.api:app \
@@ -79,7 +79,7 @@ for i in $(seq 1 30); do
         echo ""
         echo ""
         echo "=== Ready ==="
-        echo "Open external → Ctrl+P → select 'Adam (COGNET)'."
+        echo "API ready — connect your client to http://localhost:$PORT/v1."
         echo "Note: Running $(grep 'base_model' config.yaml | head -1 | cut -d/ -f2) — responses in ~5-15s."
         echo "Logs: tail -f /tmp/adam_api.log"
         exit 0
