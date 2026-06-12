@@ -1,20 +1,25 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04
 
 RUN apt-get update -qq && apt-get install -y -qq \
-    python3 python3-pip python3-venv git ffmpeg libportaudio2 \
+    python3.12 python3.12-pip python3.12-venv git ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3.12 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
 WORKDIR /app
+COPY requirements.txt .
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install torch --index-url https://download.pytorch.org/whl/cu128 \
+    && pip install -r requirements.txt
+
 COPY . .
 
-RUN pip3 install --no-cache-dir \
-    torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124 \
-    && pip3 install --no-cache-dir \
-    transformers accelerate bitsandbytes peft safetensors sentence-transformers \
-    gradio fastapi uvicorn ddgs \
-    edge-tts sounddevice miniaudio \
-    numpy scikit-learn
+RUN cp config.yaml.example config.yaml && mkdir -p models personas agent_memory
 
-EXPOSE 8000 7860
+EXPOSE 8765 7860
+
+ENV PYTHONPATH=/app/src
 
 CMD ["python3", "adam_chat.py"]
