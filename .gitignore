@@ -1,27 +1,26 @@
-# Python
+
+agent_memory/
+AGENTS.md
+config.yaml.bak
+.DS_Store
+.env
+# Environment
+# IDE
+.idea/
+INTEGRATION_PLAN.md
+# Internal planning docs (not for consumers)
+external.json
+# OS
+PLAN.md
+# Private files (not tracked)
 __pycache__/
 *.py[cod]
-*.so
-
+# Python
 # Runtime data (auto-generated per-session)
-agent_memory/
-
-# Environment
-.env
-venv/
-.venv/
-
-# IDE
-.vscode/
-.idea/
-
-# Unused experiments (moved to unused/)
-unused/
-
-# Internal planning docs (not for consumers)
-PLAN.md
-INTEGRATION_PLAN.md
-
-# OS
-.DS_Store
+*.so
 Thumbs.db
+unused/
+# Unused experiments (moved to unused/)
+.venv/
+venv/
+.vscode/
