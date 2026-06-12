@@ -135,8 +135,13 @@ class CognitiveAgent:
             self.diffmemory = DiffMemory(
                 dim=DIFFMEMORY_CONFIG.get("dim", 384),
                 hidden_mult=DIFFMEMORY_CONFIG.get("hidden_mult", 4),
+                depth=DIFFMEMORY_CONFIG.get("depth", 2),
                 max_patterns=DIFFMEMORY_CONFIG.get("max_patterns", 200),
                 surprise_threshold=DIFFMEMORY_CONFIG.get("surprise_threshold", 0.15),
+                momentum_beta=DIFFMEMORY_CONFIG.get("momentum_beta", 0.9),
+                momentum_scale=DIFFMEMORY_CONFIG.get("momentum_scale", 0.5),
+                weight_decay=DIFFMEMORY_CONFIG.get("weight_decay", 1e-4),
+                lr=DIFFMEMORY_CONFIG.get("lr", 1e-3),
                 device=DEVICE,
             )
 

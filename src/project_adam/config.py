@@ -100,8 +100,13 @@ DIFFMEMORY_CONFIG = {
     "enabled": True,
     "dim": 384,
     "hidden_mult": 4,
+    "depth": 2,
     "max_patterns": 200,
     "surprise_threshold": 0.15,
+    "momentum_beta": 0.9,
+    "momentum_scale": 0.5,
+    "weight_decay": 1e-4,
+    "lr": 1e-3,
 }
 
 SELF_PLAY_CONFIG = {
