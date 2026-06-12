@@ -454,16 +454,22 @@ class CognitiveAgent:
                 logger.warning("Failed to load adapter for %s: %s", user, e)
         self._current_adapter = user
 
-    def teacher_generate(self, query, temperature=0.7):
+    def teacher_generate(self, query, temperature=0.7, max_tokens=512):
         """Generate a teacher response for a raw query (no persona, no metacog).
 
         Used by the self-play loop to get expert responses for training data.
         Falls back to local model if the API is unreachable.
         Uses raw model.generate() — bypasses _local_generate() which adds persona.
+
+        Args:
+            query: The prompt to send.
+            temperature: Sampling temperature (0.0-1.0).
+            max_tokens: Maximum tokens to generate (default 512, use 4096 for personas).
         """
         messages = [{"role": "user", "content": query}]
         if self.backend == "api":
-            reply = self.language._api_generate(messages, temperature=temperature)
+            reply = self.language._api_generate(messages, temperature=temperature,
+                                                max_tokens=max_tokens)
             if reply:
                 return reply.strip()
         if self.model is None or self.tokenizer is None:
@@ -473,7 +479,7 @@ class CognitiveAgent:
         )
         inputs = self.tokenizer(text, return_tensors="pt").to(DEVICE)
         with torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=512,
+            out = self.model.generate(**inputs, max_new_tokens=max_tokens,
                                       temperature=temperature, do_sample=True)
         return self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
 

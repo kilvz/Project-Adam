@@ -49,7 +49,7 @@ class LanguageInterface:
                 pass
 
     def _api_generate(self, messages, temperature=0.7, token_callback=None,
-                      meta_action=None):
+                      meta_action=None, max_tokens=128):
         import requests as req
         api_cfg = BACKEND_CONFIG.get("api", {})
         headers = {
@@ -60,7 +60,7 @@ class LanguageInterface:
             "model": api_cfg.get("model", "gpt-4o-mini"),
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 128,
+            "max_tokens": max_tokens,
             "stream": True,
         }
         timeout = api_cfg.get("timeout", 30)

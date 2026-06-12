@@ -6,6 +6,9 @@ from .persona import Persona
 
 logger = logging.getLogger(__name__)
 
+_CONDENSE_THRESHOLD = 10000
+_CONDENSE_TARGET = 8000
+
 _GENERATION_TEMPLATE = """Create a detailed persona for "{name}".
 
 {description}
@@ -211,7 +214,7 @@ class PersonaManager:
         drafts = []
         for i in range(min(n_variations, len(temps))):
             logger.info("Generating persona draft %d/%d for '%s'...", i + 1, n_variations, name)
-            draft = agent.teacher_generate(prompt, temperature=temps[i])
+            draft = agent.teacher_generate(prompt, temperature=temps[i], max_tokens=4096)
             if draft:
                 drafts.append(draft)
 
@@ -224,13 +227,40 @@ class PersonaManager:
             logger.info("Synthesizing %d drafts for '%s'...", len(drafts), name)
             drafts_text = "\n---\n".join(f"Draft {i+1}:\n{d}" for i, d in enumerate(drafts))
             synthesis_prompt = _SYNTHESIS_TEMPLATE.format(n=len(drafts), drafts=drafts_text)
-            synthesized = agent.teacher_generate(synthesis_prompt, temperature=0.3)
+            synthesized = agent.teacher_generate(synthesis_prompt, temperature=0.3, max_tokens=4096)
             if not synthesized:
                 synthesized = drafts[0]
+
+        if len(synthesized) > _CONDENSE_THRESHOLD:
+            logger.info("Persona is %d chars — condensing to ~%d...", len(synthesized), _CONDENSE_TARGET)
+            condensed = self._condense_persona(synthesized, agent)
+            if condensed:
+                synthesized = condensed
 
         out_dir = self.persona_dir / name
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "synthesized.md"
         out_path.write_text(synthesized, encoding="utf-8")
-        logger.info("Persona '%s' saved to %s", name, out_path)
+        logger.info("Persona '%s' saved to %s (%d chars)", name, out_path, len(synthesized))
         return out_path
+
+    def _condense_persona(self, text, agent):
+        """Condense an oversized persona to fit within model context limits.
+
+        Preserves all structural sections (0-11, behavioral rules, dialogue
+        examples, language patterns) while reducing verbose prose.
+        """
+        prompt = (
+            f"Condense this persona to under {_CONDENSE_TARGET} characters. "
+            "Keep ALL sections (0-11), behavioral rules with → arrows, "
+            "dialogue examples with > quotes, and language pattern lists intact. "
+            "Preserve the exact markdown structure so it can be parsed. "
+            "Remove verbose prose from sections 1-10 — keep only 2-3 sentences "
+            "per section. Keep behavioral rules, dialogue examples, and "
+            "language patterns at full count.\n\n"
+            f"{text}"
+        )
+        result = agent.teacher_generate(prompt, temperature=0.3, max_tokens=4096)
+        if result and len(result) < len(text):
+            return result
+        return None
