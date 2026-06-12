@@ -2,6 +2,8 @@ import pytest
 import torch
 from unittest.mock import patch, MagicMock
 
+pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+
 
 @pytest.fixture
 def mock_model():
