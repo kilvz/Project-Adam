@@ -28,3 +28,4 @@ unused/
 .venv/
 venv/
 .vscode/
+config.yaml
