@@ -34,10 +34,25 @@ GENERATION_CONFIG = {
     "max_new_tokens": 128,
     "temperature": 0.7,
     "top_p": 0.9,
+    "top_k": None,
+    "do_sample": True,
+    "repetition_penalty": None,
+    "frequency_penalty": None,
+    "presence_penalty": None,
+    "typical_p": None,
+    "min_p": None,
+    "no_repeat_ngram_size": None,
+    "num_beams": None,
+    "length_penalty": None,
+    "early_stopping": None,
+    "num_return_sequences": None,
+    "diversity_penalty": None,
+    "encoder_no_repeat_ngram_size": None,
+    "guidance_scale": None,
 }
 
 _MODEL_GENERATION_OVERRIDES = {
-    "0.5B": {"max_new_tokens": 64, "temperature": 0.8, "top_p": 0.95},
+    "0.5B": {"max_new_tokens": 64, "temperature": 0.8, "top_p": 0.95, "repetition_penalty": 1.1},
     "1.5B": {"max_new_tokens": 128, "temperature": 0.7, "top_p": 0.9},
     "3B":   {"max_new_tokens": 256, "temperature": 0.7, "top_p": 0.9},
 }
@@ -50,7 +65,8 @@ def get_generation_config(model_name=None):
         model_name: e.g. "Qwen/Qwen2.5-1.5B-Instruct" or None.
 
     Returns:
-        Dict with generation parameters (max_new_tokens, temperature, top_p, etc.).
+        Dict with all generation parameters. None values mean "not set" —
+        callers should skip those when calling model.generate().
     """
     cfg = dict(GENERATION_CONFIG)
     if model_name:
@@ -59,6 +75,16 @@ def get_generation_config(model_name=None):
                 cfg.update(overrides)
                 break
     return cfg
+
+
+def build_gen_kwargs(gen_config):
+    """Build kwargs dict for model.generate() from a generation config.
+
+    Filters out None values and returns only set parameters.
+    This allows config to define every possible parameter while only
+    passing the ones that are actually configured by the user.
+    """
+    return {k: v for k, v in gen_config.items() if v is not None}
 
 BACKEND_CONFIG = {
     "mode": "local",

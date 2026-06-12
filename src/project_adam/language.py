@@ -52,12 +52,13 @@ class LanguageInterface:
 
     def _api_generate(self, messages, temperature=None, token_callback=None,
                       meta_action=None, max_tokens=None):
-        from .config import get_generation_config, BACKEND_CONFIG
+        from .config import get_generation_config, build_gen_kwargs, BACKEND_CONFIG
         gen = get_generation_config(self.model_name)
-        if temperature is None:
-            temperature = gen.get("temperature", 0.7)
-        if max_tokens is None:
-            max_tokens = gen.get("max_new_tokens", 128)
+        if temperature is not None:
+            gen["temperature"] = temperature
+        if max_tokens is not None:
+            gen["max_new_tokens"] = max_tokens
+        gen_kwargs = build_gen_kwargs(gen)
         import requests as req
         api_cfg = BACKEND_CONFIG.get("api", {})
         headers = {
@@ -67,10 +68,12 @@ class LanguageInterface:
         body = {
             "model": api_cfg.get("model", "gpt-4o-mini"),
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
             "stream": True,
         }
+        if "temperature" in gen_kwargs:
+            body["temperature"] = gen_kwargs["temperature"]
+        if "max_new_tokens" in gen_kwargs:
+            body["max_tokens"] = gen_kwargs["max_new_tokens"]
         timeout = api_cfg.get("timeout", 30)
         reply = ""
         try:
@@ -101,13 +104,12 @@ class LanguageInterface:
         return reply.strip()
 
     def _local_generate(self, messages, temperature=None, token_callback=None):
-        from .config import get_generation_config
+        from .config import get_generation_config, build_gen_kwargs
         gen = get_generation_config(self.model_name)
-        if temperature is None:
-            temperature = gen.get("temperature", 0.7)
-        max_new_tokens = gen.get("max_new_tokens", 128)
-        top_p = gen.get("top_p", 0.9)
-        top_k = gen.get("top_k")
+        if temperature is not None:
+            gen["temperature"] = temperature
+        gen_kwargs = build_gen_kwargs(gen)
+        max_new_tokens = gen_kwargs.pop("max_new_tokens", 128)
 
         if self.model is None:
             return ""
@@ -117,7 +119,7 @@ class LanguageInterface:
                                          truncation=True, max_length=256).to(self._encdec_model.device)
             with torch.no_grad():
                 out = self._encdec_model.generate(**enc, max_new_tokens=max_new_tokens,
-                                                  temperature=temperature, do_sample=True)
+                                                  **gen_kwargs)
             return self._encdec_tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
         system = self.build_prompt(None, None, None, None)
@@ -136,15 +138,11 @@ class LanguageInterface:
         )
         generation_kwargs = dict(
             **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            do_sample=True,
-            top_p=top_p,
             streamer=streamer,
             stopping_criteria=stopping_criteria,
+            max_new_tokens=max_new_tokens,
+            **gen_kwargs,
         )
-        if top_k is not None:
-            generation_kwargs["top_k"] = top_k
 
         def generate():
             with torch.no_grad():

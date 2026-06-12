@@ -15,10 +15,23 @@ quantization:
   bnb_4bit_use_double_quant: false
 
 generation:
-  max_new_tokens: 128
-  temperature: 0.7
-  top_p: 0.9
-  # top_k: 40  # uncomment to enable top-k sampling
+  max_new_tokens: 128          # max tokens per response
+  temperature: 0.7             # sampling temperature (higher = more random)
+  top_p: 0.9                   # nucleus sampling threshold
+  # top_k: 40                  # top-k sampling (uncomment to enable)
+  # do_sample: true            # set false for greedy decoding
+  # repetition_penalty: 1.1    # penalize repeated tokens (>1 = less repetition)
+  # frequency_penalty: 0.0     # penalize frequent tokens
+  # presence_penalty: 0.0      # penalize tokens that have appeared
+  # typical_p: 1.0             # typical sampling threshold
+  # min_p: 0.0                 # minimum probability threshold
+  # no_repeat_ngram_size: 3    # prevent 3-gram repetition
+  # num_beams: 1               # beam search width (1 = greedy, >1 = beam search)
+  # length_penalty: 1.0        # length penalty for beam search
+  # early_stopping: false      # stop beam search when all beams finished
+  # num_return_sequences: 1    # number of output sequences
+  # diversity_penalty: 0.0     # diversity penalty for beam search groups
+  # guidance_scale: 1.0        # classifier-free guidance scale
 
 backend:
   mode: "auto"                        # "auto", "local", or "api"

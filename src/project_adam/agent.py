@@ -468,17 +468,16 @@ class CognitiveAgent:
 
         Args:
             query: The prompt to send.
-            temperature: Sampling temperature (0.0-1.0, None=model default).
-            max_tokens: Maximum tokens to generate (None=model default, use 4096 for personas).
+            temperature: Sampling temperature (None=model default).
+            max_tokens: Maximum tokens to generate (None=model default).
         """
-        from .config import get_generation_config
+        from .config import get_generation_config, build_gen_kwargs
         gen = get_generation_config(self.model_name)
-        if temperature is None:
-            temperature = gen.get("temperature", 0.7)
-        if max_tokens is None:
-            max_tokens = gen.get("max_new_tokens", 128)
-        top_p = gen.get("top_p", 0.9)
-        top_k = gen.get("top_k")
+        if temperature is not None:
+            gen["temperature"] = temperature
+        if max_tokens is not None:
+            gen["max_new_tokens"] = max_tokens
+        gen_kwargs = build_gen_kwargs(gen)
 
         messages = [{"role": "user", "content": query}]
         if self.backend == "api":
@@ -492,10 +491,6 @@ class CognitiveAgent:
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = self.tokenizer(text, return_tensors="pt").to(DEVICE)
-        gen_kwargs = dict(max_new_tokens=max_tokens, temperature=temperature,
-                          do_sample=True, top_p=top_p)
-        if top_k is not None:
-            gen_kwargs["top_k"] = top_k
         with torch.no_grad():
             out = self.model.generate(**inputs, **gen_kwargs)
         return self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
