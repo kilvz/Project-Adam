@@ -138,10 +138,29 @@ Template: `"How do I handle {keywords}? I've struggled with this."`
 
 Fallback if no skills: use creative strategy.
 
-#### Strategy 4: `_queries_creative(n)`
-Ask the teacher API: `"Suggest a topic for me to learn about. Give me one specific concept I should explore."`
+#### Strategy 4: `_queries_creative(n)` (two-step)
 
-Use the teacher's response as both query and target (store with response as action).
+Step 1 — ask the teacher for a topic:
+
+```
+Send:  "Suggest a topic for me to learn about. Give me one specific concept."
+Return: topic phrase (e.g. "quantum computing")
+```
+
+Step 2 — formulate a query from the topic and get a real response:
+
+```
+Send:  "Explain {topic} to me. What should I know about it?"
+Return: full teacher explanation
+
+Store: text="Explain {topic} to me..."
+       action=<full teacher explanation>
+       reward=self.reward
+```
+
+This guarantees `text ≠ action` — a real (query, response) learning pair.
+
+The topic from Step 1 is added to `_query_history` for dedup so the same topic won't be requested again. If the teacher's Step 1 response is empty or invalid, the creative query is skipped (no episode stored).
 
 ### Dedup
 
