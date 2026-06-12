@@ -30,3 +30,4 @@ venv/
 .vscode/
 config.yaml
 .external/
+IMPLEMENTATION_AUDIT.md
