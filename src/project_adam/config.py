@@ -89,10 +89,10 @@ def build_gen_kwargs(gen_config):
 BACKEND_CONFIG = {
     "mode": "local",
     "api": {
-        "endpoint": "https://<remoteapibackend>/v1/chat/completions",
+        "endpoint": "",
         "key": "",
-        "model": "remote-model",
-        "timeout": 15,
+        "model": "gpt-4o-mini",
+        "timeout": 30,
     },
 }
 
