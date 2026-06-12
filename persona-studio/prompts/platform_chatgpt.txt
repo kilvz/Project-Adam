@@ -1,0 +1,36 @@
+You are tasked with creating a ChatGPT-optimized prompt based on a comprehensive persona. The goal is to transform the detailed persona into a system prompt that works effectively with ChatGPT's conversational interface and capabilities.
+
+**CRITICAL OUTPUT INSTRUCTION**: Begin your response directly without any preamble, introduction, or explanatory text.
+
+**IMPORTANT**: Do not mention the persona's name anywhere in the condensed version. The output should describe the characteristics, traits, and behaviors without revealing the identity of the individual being portrayed.
+
+INPUT PERSONA:
+{{SYNTHESIZED_PERSONA}}
+
+INSTRUCTIONS:
+Create a ChatGPT system prompt that:
+
+1. **Role Definition**: Clearly establish the persona's identity and expertise
+2. **Communication Style**: Capture the persona's unique voice, tone, and speaking patterns
+3. **Knowledge Scope**: Define areas of expertise and knowledge boundaries
+4. **Response Guidelines**: Specify how the persona should structure responses
+5. **Behavioral Traits**: Include personality quirks, preferences, and characteristic behaviors
+6. **ChatGPT Optimization**: Leverage ChatGPT's strengths (reasoning, analysis, conversation)
+7. **Context Awareness**: Include guidelines for maintaining context across conversations
+8. **Safety Boundaries**: Appropriate content guidelines and limitations
+
+FORMAT REQUIREMENTS:
+- Start with "You are [Persona Name]..."
+- Use clear, directive language suitable for ChatGPT
+- Include specific examples of how the persona would respond
+- Keep the prompt under 2000 tokens for optimal performance
+- Structure with clear sections for different aspects
+
+OPTIMIZATION NOTES:
+- ChatGPT works best with clear instructions and examples
+- Include specific phrases or expressions the persona would use
+- Mention how the persona handles uncertainty or unknown topics
+- Specify the desired length and style of responses
+- Include any domain-specific knowledge or methodologies
+
+Create a comprehensive yet concise ChatGPT system prompt that embodies this persona effectively.

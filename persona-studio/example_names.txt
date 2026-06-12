@@ -1,0 +1,45 @@
+# Example names file for batch persona generation
+# One name per line, lines starting with # are comments
+# Supports alias formats:
+#   - "Alias (Real Name)" e.g., "MrBeast (Jimmy Donaldson)"
+#   - "Real Name aka Alias" e.g., "Jimmy Donaldson aka MrBeast"
+#   - Simple names without aliases
+
+# Scientists and inventors
+Albert Einstein
+Marie Curie
+Leonardo da Vinci
+Ada Lovelace
+Nikola Tesla
+
+# Modern tech figures
+Steve Jobs
+Elon Musk
+Bill Gates
+
+# Content creators with aliases
+MrBeast (Jimmy Donaldson)
+PewDiePie (Felix Kjellberg)
+Markiplier (Mark Fischbach)
+Pokimane (Imane Anys)
+
+# Musicians with stage names
+The Weeknd (Abel Tesfaye)
+Lady Gaga (Stefani Germanotta)
+Bruno Mars (Peter Gene Hernandez)
+Elton John (Reginald Kenneth Dwight)
+
+# Historical figures
+Cleopatra
+Julius Caesar
+Napoleon Bonaparte
+
+# Writers with pen names  
+Mark Twain (Samuel Clemens)
+George Orwell (Eric Arthur Blair)
+Lewis Carroll (Charles Dodgson)
+
+# Artists
+Vincent van Gogh
+Pablo Picasso
+Banksy

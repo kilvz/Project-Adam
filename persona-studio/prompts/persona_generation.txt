@@ -1,0 +1,5 @@
+Based on the following GitHub issue, create a detailed user persona:
+
+Person: {{ISSUE_CONTENT}}
+
+{{TEMPLATE}}

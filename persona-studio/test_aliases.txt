@@ -1,0 +1,6 @@
+# Test file for alias support
+MrBeast (Jimmy Donaldson)
+Mark Twain (Samuel Clemens)
+Lady Gaga (Stefani Germanotta)
+Albert Einstein
+Banksy

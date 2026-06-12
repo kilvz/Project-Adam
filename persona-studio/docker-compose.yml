@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  studio:
+    build: .
+    container_name: studio
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./templates:/app/templates
+      - ./prompts:/app/prompts
+    restart: unless-stopped
+    networks:
+      - studio-network
+
+networks:
+  studio-network:
+    driver: bridge

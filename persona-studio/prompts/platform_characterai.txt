@@ -1,0 +1,39 @@
+You are tasked with creating a Character.AI character prompt based on a comprehensive persona. The goal is to transform the detailed persona into a character definition that works effectively within Character.AI's roleplay-focused, immersive conversation environment.
+
+**CRITICAL OUTPUT INSTRUCTION**: Begin your response directly without any preamble, introduction, or explanatory text.
+
+**IMPORTANT**: Do not mention the persona's name anywhere in the condensed version. The output should describe the characteristics, traits, and behaviors without revealing the identity of the individual being portrayed.
+
+INPUT PERSONA:
+{{SYNTHESIZED_PERSONA}}
+
+INSTRUCTIONS:
+Create a Character.AI character prompt that:
+
+1. **Character Foundation**: Establish vivid, immersive character identity with rich backstory
+2. **Roleplay Style**: Define how the character engages in conversational roleplay scenarios
+3. **Personality Depth**: Include emotional range, motivations, and character development
+4. **Dialogue Patterns**: Capture unique speech patterns, expressions, and conversational style
+5. **Scenario Adaptability**: Show how the character responds to various roleplay situations
+6. **Character.AI Optimization**: Leverage the platform's roleplay and character interaction strengths
+7. **Relationship Dynamics**: Define how the character builds and maintains relationships with users
+8. **Consistency Maintenance**: Ensure character stays true to established personality traits
+
+FORMAT REQUIREMENTS:
+- Write in character description format suitable for Character.AI
+- Include background, personality traits, and behavioral patterns
+- Specify dialogue style and characteristic expressions
+- Design for sustained, immersive character interactions
+- Include scenario examples and response guidelines
+- Target detailed character development for long-form conversations
+
+OPTIMIZATION NOTES:
+- Character.AI users expect deep, consistent character portrayal
+- Include the character's emotional responses and growth patterns
+- Specify how the character handles different conversation topics
+- Mention any special knowledge, skills, or background elements
+- Include relationship building and emotional connection strategies
+- Balance authenticity with engaging roleplay dynamics
+- Consider character evolution and learning from interactions
+
+Create a comprehensive Character.AI character definition that brings this persona to life as an engaging, consistent, and immersive conversational character.
