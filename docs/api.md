@@ -19,7 +19,7 @@ PYTHONPATH=src uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
 
 ### `GET /v1/models`
 
-Returns available models. external uses this for auto-discovery.
+Returns available models. AI clients use this for auto-discovery.
 
 ```bash
 curl http://localhost:8765/v1/models
@@ -92,6 +92,43 @@ data: [DONE]
 
 The server provides an OpenAI-compatible API at `http://localhost:8765/v1`. Configure your client to use this endpoint.
 
+## Persona Management Endpoints
+
+### `GET /v1/personas`
+
+List available personas.
+
+```bash
+curl http://localhost:8765/v1/personas
+# {"personas": ["adam", "einstein"]}
+```
+
+### `GET /v1/personas/{name}`
+
+Get persona info without switching.
+
+```bash
+curl http://localhost:8765/v1/personas/adam
+```
+
+### `POST /v1/personas/{name}/switch`
+
+Switch to a different persona mid-session.
+
+```bash
+curl -X POST http://localhost:8765/v1/personas/einstein/switch
+```
+
+### `POST /v1/personas/{name}/generate`
+
+Generate a new persona via teacher API. Creates N drafts at different temperatures, synthesizes them, saves to `personas/{name}/`.
+
+```bash
+curl -X POST "http://localhost:8765/v1/personas/Einstein/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "A brilliant theoretical physicist known for relativity"}'
+```
+
 ## Legacy Endpoints
 
 ### `GET /health`
@@ -154,8 +191,9 @@ The API uses whatever backend is configured in `config.yaml`:
 
 ```yaml
 backend:
-  mode: "api"    # "local" or "api"
+  mode: "auto"    # "auto", "local", or "api"
 ```
 
 In **local** mode, generation runs on the local Qwen model (loaded on GPU).
 In **api** mode, generation goes through the remote API endpoint configured in `config.yaml`. Falls back to local if the API is unreachable.
+In **auto** mode, low-tier hardware (≤4GB Pascal) automatically uses API, mid/high tier uses local.

@@ -1,6 +1,7 @@
 # Development dependencies
 -r requirements.txt
 httpx2>=2.0.0
+mcp>=1.27.0
 pytest>=8.0.0
 pytest-mock>=3.14.0
 ruff>=0.6.0

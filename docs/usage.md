@@ -13,6 +13,7 @@ Commands at the prompt:
 | `/dashboard` | SFL Q, reward, confidence, rule weights |
 | `/profile` | Show current user profile |
 | `/users` | List all users |
+| `/persona` | Show current persona info |
 | `/remove <name>` | Remove a user profile |
 | `/memory` | Show recent episodes |
 | `/schemas` | Show semantic schemas |
@@ -46,6 +47,16 @@ Requires: `pip install faster-whisper edge-tts miniaudio sounddevice`
 ```
 
 See [API docs](api.md) for endpoints.
+
+## MCP Server
+
+```bash
+python3 -m project_adam --mcp
+```
+
+Starts an MCP stdio server exposing 13 tools for external AI integration:
+query knowledge, teach episodes, consolidate, switch personas, control self-play.
+Requires: `pip install mcp>=1.27.0`
 
 ## Backend Modes
 

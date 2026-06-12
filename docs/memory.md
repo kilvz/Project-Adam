@@ -1,6 +1,6 @@
 # Memory Systems
 
-Adam has six memory systems as specified by the COGNET architecture.
+Adam has seven memory systems as specified by the COGNET architecture.
 
 ## Working Memory
 
@@ -73,3 +73,19 @@ Per-user persistent state stored in SQLite.
 - **Data**: interaction_count, avg_sentiment, topics, custom_rules, rule_weights, sentiment_history
 - **Detection**: Automatic user detection via name extraction from conversation
 - **Adapters**: Per-user LoRA adapters saved at `agent_memory/adapters/{user}/`
+
+## DiffMemory
+
+**File**: `src/project_adam/memory/diffmemory.py`
+
+Lightweight differentiable memory that learns compressed patterns from episodic experiences during consolidation.
+
+- **Architecture**: 2-layer `MemoryMLP` (384→1536→384) with GELU activations, LayerNorm + residual
+- **Storage**: Patterns stored via gradient descent on MLP weights — the MLP weights ARE the memory
+- **Surprise gating**: Only stores patterns with reconstruction error above `surprise_threshold` (0.15) — prevents duplicate storage
+- **Retrieval**: Forward pass through MLP, then cosine similarity against stored pattern embeddings
+- **Training**: Updated during consolidation step 3b (`_update_diffmemory`), not during inference
+- **Inference**: No gradient computation — pure forward pass + nearest-neighbor
+- **Capacity**: Bounded by `max_patterns` (200) with LRU eviction based on usage count
+- **VRAM**: ~3 MB total (MLP weights + gradient buffers during training)
+- **Integration**: Patterns retrieved in `chat()` and injected into `build_system_prompt()` via `user_profile["memory_patterns"]`

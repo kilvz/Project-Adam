@@ -54,7 +54,7 @@ A: Increase `timeout` in config.yaml under `backend.api.timeout`. The first requ
 
 **Q: What components does Adam have?**
 
-A: 14 COGNET components: SensoryEncoder, WorkingMemory, EpisodicMemory, SemanticMemory, ProceduralMemory, SpatialMemory, TDCore, SFLModule, WorldModel, MetacogController, LanguageInterface, ActionSelector, OfflineConsolidator, Persona.
+A: 20 COGNET components: SensoryEncoder, VisionEncoder, AudioEncoder, WorkingMemory, EpisodicMemory, SemanticMemory, ProceduralMemory, SpatialMemory, DiffMemory, TDCore, SFLModule, WorldModel, WebSearch, MetacogController, LanguageInterface, ActionSelector, OfflineConsolidator, SelfPlayLearner, Persona, UserProfileManager.
 
 **Q: Is neural memory used?**
 

@@ -71,7 +71,7 @@ Higher Q → lower temperature → more deterministic responses.
 
 ## Metacognitive Controller
 
-`MetacogPolicy` (5→16→5 MLP) trained via REINFORCE:
+`MetacogPolicy` (5→32→16→5 MLP) trained via REINFORCE:
 - Features: [confidence, uncertainty, sfl_q, consecutive_low, learning_progress]
 - Reward signal: same turn-level reward as all other components
 - Mixes learned policy with rule-based baseline (epsilon-greedy)
@@ -88,11 +88,10 @@ Reward is computed from user input via `TDCore.compute_reward()`:
 
 Every `REPLAY` meta-action triggers `OfflineConsolidator.merge_episodes()`:
 
-1. **Replay** — sample episodes from episodic memory
-2. **Prioritize** — sort by |RPE| descending, take top 10
-3. **Abstract** — cluster patterns, add to semantic memory
-4. **Prune** — remove low-reward episodes, consolidate schemas
-5. **Update world model** — observe entity relations from text
-6. **Update procedural** — record successful action patterns
-7. **TD replay** — replay episodes through RL core
-8. **Reset** — clear eligibility traces
+1. **Replay + Prioritize** — sample episodes, sort by |RPE| descending, re-run TD on top 10
+2. **Abstract** — cluster high-reward episodes by embedding similarity >0.7, record as procedural skills
+3. **DiffMemory update** — encode high-reward episodes through differentiable memory MLP via gradient descent
+4. **Prune** — remove low-reward episodes via `episodic.prune(threshold=0.2)`
+5. **Update world model** — Bayesian update from high-reward episodes
+6. **Update procedural** — offline RL from prioritized experiences, record as skills with Q-value update
+7. **Bonus** — cross-user distillation, phrase clustering, TD core reset, semantic consolidation

@@ -26,35 +26,43 @@ Design synthesized from 2025-2026 research on human learning and behavior.
 │                    METACOGNITIVE CONTROLLER                  │
 │  uncertainty estimation · confidence monitoring              │
 │  strategy selection · self-evaluation · reflection           │
-└────────────────────┬────────────────────────────────────────┘
-                     │ controls
-    ┌────────────────┼────────────────────┐
-    ▼                ▼                    ▼
-┌──────────┐  ┌──────────┐  ┌──────────────────────┐
-│ SENSORY  │  │ WORKING  │  │  LANGUAGE INTERFACE  │
-│ ENCODERS │◄─┤ MEMORY   │◄─┤  (social learning,   │
-│ (efficient│  │ (limited │  │   self-talk,         │
-│  coding)  │  │  capacity)│  │   instruction)       │
-└────┬─────┘  └────┬─────┘  └──────────────────────┘
-     │              │
-     ▼              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    LONG-TERM MEMORY SYSTEMS                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
-│  │ Episodic │ │ Semantic │ │Procedural│ │   Spatial     │  │
-│  │ (events, │ │(schemata,│ │ (skills, │ │  (layouts,    │  │
-│  │ contexts)│ │  graphs) │ │ policies)│ │  relations)   │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬────────┘  │
-│       └────────────┼────────────┼───────────────┘           │
-│                    ▼            ▼                            │
-│            ┌──────────────────────┐                          │
-│            │  OFFLINE CONSOLIDATOR│                          │
-│            │  replay · prioritize │                          │
-│            │  abstract · compress │                          │
-│            └──────────────────────┘                          │
-└──────────────────────────────────────────────────────────────┘
-                     │
-                     ▼
+└────────────┬───────────────┬───────────────────┬────────────┘
+             │               │                   │
+     ┌───────┴───────┐ ┌────┴────┐ ┌─────────────┴──────────────┐
+     │   SENSORY     │ │ WORKING │ │      LANGUAGE INTERFACE    │
+     │   ENCODERS    │ │ MEMORY  │ │  (generation, self-talk,   │
+     │ (text/vision/ │ │(64-slot,│ │   behavioral rules,        │
+     │  audio β-VAE) │ │ gated)  │ │   utterance-likeness)      │
+     └───────┬───────┘ └────┬────┘ └─────────────┬──────────────┘
+             │              │                    │
+             ▼              ▼                    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    LONG-TERM MEMORY SYSTEMS                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐         │
+│  │ Episodic │ │ Semantic │ │Procedural│ │  Spatial   │         │
+│  │ (events, │ │(schemata,│ │ (skills, │ │ (layouts,  │         │
+│  │ contexts)│ │  graphs) │ │ policies)│ │ relations) │         │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬──────┘         │
+│       │            │            │              │                │
+│  ┌────┴────────────┴────────────┴──────────────┴──────┐         │
+│  │               OFFLINE CONSOLIDATOR                 │         │
+│  │  replay · prioritize · abstract · prune · update   │         │
+│  │  world model · update procedural · DiffMemory      │         │
+│  └────────────────────────┬──────────────────────────-┘         │
+│                           │                                    │
+│  ┌────────────────────────┴──────────────────────────────┐     │
+│  │  DiffMemory (differentiable MLP, consolidation-trained) │     │
+│  │  surprise-gated storage, fast-forward retrieval         │     │
+│  └────────────────────────────────────────────────────────-┘     │
+│                    │                                             │
+│  ┌─────────────────┴─────────────────────────────────────┐      │
+│  │  WebSearch (DDGS + Wikipedia, cached)                 │      │
+│  │  Self-Play (background Q→A generation, metacog-gated) │      │
+│  │  PersonaManager (list, load, switch, generate)        │      │
+│  └──────────────────────────────────────────────────────-┘      │
+└──────────────────────────────────────────────────────────────────┘
+                      │
+                      ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    LEARNING ENGINE                           │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
@@ -63,8 +71,8 @@ Design synthesized from 2025-2026 research on human learning and behavior.
 │  │ learning)│ │ Objective│ │ Learning │ │   Inference  │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
 └──────────────────────────────────────────────────────────────┘
-                     │
-                     ▼
+                      │
+                      ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    ACTION SELECTION (Dual-System)            │
 │  ┌────────────────────┐  ┌──────────────────────────────┐   │
@@ -141,6 +149,15 @@ Structure: Sliding Window Attention + Explicit Bounded Buffer
 #### 3d. Spatial Memory
 - Dynamic knowledge graph of spatial relationships (from RoboMemory architecture)
 - Updated incrementally with local conflict detection
+
+#### 3e. DiffMemory (Differentiable Memory)
+- Lightweight MLP-based memory that learns compressed patterns from episodic experiences
+- 2-layer MemoryMLP (384→1536→384) with GELU + LayerNorm + residual
+- Patterns stored via gradient descent during offline consolidation step 3b
+- Surprise-gated: only stores novel patterns (reconstruction error above threshold)
+- Retrieval via forward pass + cosine similarity — no gradients during inference
+- Bounded capacity (200 patterns) with LRU eviction
+- Complements EpisodicMemory: Episodic stores exact experiences, DiffMemory stores generalized patterns
 
 ### 4. Learning Engine
 
@@ -276,19 +293,31 @@ Implements the brain's two decision systems:
 
 ---
 
-## Implementation Suggestion
+## Implementation
 
-For a first prototype, simplify to:
+The full implementation lives at `src/project_adam/` — 20 components across 25 source files, 193 tests (incl. 57 architecture compliance tests).
 
 ```
-1. Efficient Coding Encoder: VAE with β-VAE objective
-2. Working Memory: Transformer-XL with bounded memory
-3. Episodic Memory: Vector database (e.g., FAISS) indexed by learned embeddings
-4. Semantic Memory: Knowledge graph (e.g., NetworkX) + schema matching
-5. RL Core: SAC (Soft Actor-Critic) with discrete/continuous actions
-6. SFL Module: Linear layer learning feature→reward associations
-7. Metacognitive Controller: Small MLP reading features from 1-6
-8. Offline Consolidation: Prioritized experience replay + periodic schema extraction
+1. Sensory Encoders: β-VAE with learned prior, top-10% sparsity, hardware-tier-aware
+2. Working Memory: 64-slot bounded buffer with attention-gated eviction + temporal decay
+3. Episodic Memory: SQLite-backed (s,a,r,c) tuples with symbolic keyword index + temporal compression
+4. Semantic Memory: Schema graph with prediction-error gated assimilation/accommodation
+5. Procedural Memory: Skill + ChunkedSkill classes with RPE-driven Q-learning
+6. Spatial Memory: 17-relation triple store with conflict detection + inverse inference
+7. DiffMemory: 2-layer MemoryMLP trained during consolidation, fast-forward retrieval
+8. RL Core: TD(λ) + ActorNetwork policy head with eligibility traces + RPE broadcast
+9. SFL Module: 7 social features, Rescorla-Wagner Q-learning, compute_temperature()
+10. Bayesian World Model: Conjugate Gaussian priors, causal graph, speaker model
+11. WebSearch: DDGS general + Wikipedia knowledge, independent caches
+12. Metacognitive Controller: 5→32→16→5 MLP with REINFORCE, 5 canonical actions
+13. LanguageInterface: Dual-backend (local/API), persona builder, behavioral rules
+14. ActionSelector: Dual-system — pattern-based fast path + world model slow path
+15. OfflineConsolidator: Full 6-step cycle with RPE prioritization + DiffMemory update
+16. SelfPlayLearner: Autonomous background Q→A generation, 4 strategies, metacog-gated
+17. PersonaManager: List, load, switch, generate personas via teacher API
+18. MCP Server: 13 tools for external AI integration
+19. UserProfileManager: Per-user state, LoRA adapters, rule weights
+20. Persona: Markdown-based identity overlay with behavioral rules
 ```
 
-Backend: PyTorch + Ray for potential distributed training.
+Backend: PyTorch on consumer GPU (GTX 1050 4GB tested) or remote API fallback.

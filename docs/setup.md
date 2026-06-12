@@ -3,18 +3,17 @@
 ## Requirements
 
 - **OS**: Linux (tested on Ubuntu 22.04+)
-- **GPU**: NVIDIA with 4GB+ VRAM, CUDA 12.4 (works on GTX 1050 Pascal)
+- **GPU**: NVIDIA with 4GB+ VRAM, CUDA 13.0 (works on GTX 1050 Pascal)
 - **RAM**: 8GB+
 - **Disk**: 6GB+ for model + runtime data
-- **Python**: 3.12+
+- **Python**: 3.10+
 
 ## Installation
 
 ```bash
 git clone https://github.com/kilvz/Project-Adam.git
 cd Project-Adam
-pip install -r requirements.txt
-pip install -e .
+pip install -r requirements-dev.txt
 ```
 
 ## Package Structure
@@ -22,16 +21,17 @@ pip install -e .
 ```
 Project-Adam/
 ├── architecture.md              # COGNET architecture specification
-├── remotearchitecture.md        # Remote API integration layer
 ├── config.yaml                  # User-editable config
 ├── start_adam.sh                # Launch script with auto-GPU-cleanup
 ├── external.json                # Remote API provider config
+├── personas/
+│   └── adam.md                  # Default persona file
 ├── src/project_adam/
 │   ├── __init__.py              # Public API, calls load_config()
 │   ├── __main__.py              # Entry point (CLI arg parsing)
-│   ├── agent.py                 # CognitiveAgent orchestrator (all 14 components)
+│   ├── agent.py                 # CognitiveAgent orchestrator (20 components)
 │   ├── api.py                   # FastAPI server + OpenAI-compatible endpoint
-│   ├── config.py                # Constants, load_config(), BACKEND_CONFIG
+│   ├── config.py                # Constants, load_config(), all config blocks
 │   ├── language.py              # LanguageInterface (dual-backend: local/API)
 │   ├── selector.py              # ActionSelector (dual-system: fast/slow)
 │   ├── metacog.py               # MetacognitiveController (learned policy)
@@ -43,18 +43,22 @@ Project-Adam/
 │   ├── search.py                # WebSearch (DDGS + Wikipedia, cached)
 │   ├── persona.py               # Persona system (28KB max)
 │   ├── profiles.py              # UserProfileManager
+│   ├── self_play.py             # SelfPlayLearner (autonomous training)
+│   ├── mcp_server.py            # MCP server (13 tools for external AI)
+│   ├── persona_manager.py       # PersonaManager (list/switch/generate)
 │   ├── memory/
 │   │   ├── store.py             # SQLiteStore (WAL, thread-safe)
 │   │   ├── working.py           # WorkingMemory (64-slot, attention gating)
 │   │   ├── episodic.py          # EpisodicMemory ((s,a,r,c) tuples, symbolic index)
 │   │   ├── semantic.py          # SemanticMemory (graph, assimilation/accommodation)
 │   │   ├── procedural.py        # ProceduralMemory (RL via RPE, chunking)
-│   │   └── spatial.py           # SpatialMemory (17 relations, conflict detection)
+│   │   ├── spatial.py           # SpatialMemory (17 relations, conflict detection)
+│   │   └── diffmemory.py        # DiffMemory (differentiable MLP memory)
 │   └── ui/
 │       ├── cli.py               # CLI chat interface
 │       ├── webui.py             # Gradio Web UI
 │       └── voice.py             # Voice mode
-├── tests/                       # 132 tests — pytest
+├── tests/                       # 193 tests — pytest
 └── docs/                        # Documentation
 ```
 
@@ -85,17 +89,30 @@ quantization:
   load_in_4bit: true
   bnb_4bit_compute_dtype: torch.float16
   bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: false
 generation:
   max_new_tokens: 128
   temperature: 0.7
   top_p: 0.9
+  # top_k: 40
+  # repetition_penalty: 1.1
 backend:
-  mode: "local"                  # "local" or "api"
+  mode: "auto"                    # "auto", "local", or "api"
   api:
     endpoint: "https://<remoteapibackend>/v1/chat/completions"
     key: ""
-    model: "remote-model"
-    timeout: 15
+    model: "ai-model"
+    timeout: 30
+self_play:
+  enabled: true
+  interval_seconds: 120
+  batch_size: 8
+  strategies:
+    - schema
+    - world_model
+    - procedural
+    - creative
+  reward: 0.85
 ```
 
 ## Running
@@ -114,6 +131,9 @@ python3 -m project_adam --voice
 ./start_adam.sh
 # or: PYTHONPATH=src uvicorn project_adam.api:app --host 0.0.0.0 --port 8765
 
+# MCP server (for external AI integration)
+python3 -m project_adam --mcp
+
 # With remote API client
 # export API_ENDPOINT="http://localhost:8765/v1"
 ```
@@ -128,7 +148,8 @@ If loading fails, the agent falls back to API-only mode (model=None) and continu
 
 ```bash
 pip install -r requirements-dev.txt
-PYTHONPATH=src python3 -m pytest tests/    # 132 tests
+PYTHONPATH=src python3 -m pytest tests/    # 193 tests (incl. 57 architecture compliance)
+PYTHONPATH=src python3 -m pytest tests/test_architecture.py -v   # architecture audit only
 ```
 
 ## Troubleshooting
@@ -137,5 +158,6 @@ PYTHONPATH=src python3 -m pytest tests/    # 132 tests
 |---------|----------|
 | CUDA out of memory | Switch to 0.5B model or use `backend.mode: api` |
 | CUBLAS_STATUS_ALLOC_FAILED | Run `./start_adam.sh` (clears GPU context) |
-| API timeout | Set `"timeout": 120000` in provider configuration |
-| Module not found | Run `pip install -e .` or set `PYTHONPATH=src` |
+| Module 'mcp' not found | `pip install mcp>=1.27.0` (required for `--mcp` mode) |
+| API timeout | Set `timeout` in config.yaml `backend.api.timeout` |
+| Module not found | Run `pip install -r requirements-dev.txt` or set `PYTHONPATH=src` |
