@@ -122,6 +122,8 @@ class Persona:
         return items
 
     _MAX_PROMPT_CHARS = 10000
+    _max_rules = 20
+    _max_phrases = 20
 
     def build_system_prompt(self, user_profile=None, known_facts=None):
         parts = [
@@ -149,11 +151,11 @@ class Persona:
             parts.append(self.philosophy[:1000])
         if self.behavior_rules:
             rules_str = "\n".join(
-                f"- If {c}, then {a}" for c, a in self.behavior_rules[:20]
+                f"- If {c}, then {a}" for c, a in self.behavior_rules[:self._max_rules]
             )
             parts.append(f"behavioral rules:\n{rules_str}")
         if self.language_patterns:
-            sigs = self.language_patterns.split()[:20]
+            sigs = self.language_patterns.split()[:self._max_phrases]
             if sigs:
                 parts.append(f"Use expressions like: {' '.join(sigs)}")
         if user_profile:
@@ -176,15 +178,36 @@ class Persona:
             "thoughtful, sometimes questioning, always present."
         )
         prompt = "\n".join(parts)
-        # Size guard: if over limit, drop verbose sections (keep rules + essence)
-        if len(prompt) > self._MAX_PROMPT_CHARS:
-            parts = [p for p in parts if not any(p.startswith(x) for x in [
-                "Communication style:", "When answering, follow",
-            ])]
+        # Size guard: progressively drop/truncate sections until under limit
+        for _ in range(5):
+            if len(prompt) <= self._MAX_PROMPT_CHARS:
+                break
+            # Level 1: drop verbose prose sections
+            parts = [p for p in parts if not any(
+                p.startswith(x) for x in [
+                    "Communication style:", "When answering, follow",
+                ])]
             prompt = "\n".join(parts)
-        if len(prompt) > self._MAX_PROMPT_CHARS:
-            parts = [p for p in parts if not p.startswith(
-                "behavioral rules:")]
+            if len(prompt) <= self._MAX_PROMPT_CHARS:
+                break
+            # Level 2: truncate philosophy to 300 chars
+            parts = [p[:300] if p.startswith("### 6.") or p.startswith("Core beliefs")
+                     else p for p in parts]
+            prompt = "\n".join(parts)
+            if len(prompt) <= self._MAX_PROMPT_CHARS:
+                break
+            # Level 3: drop behavioral rules
+            parts = [p for p in parts if not p.startswith("behavioral rules:")]
+            prompt = "\n".join(parts)
+            if len(prompt) <= self._MAX_PROMPT_CHARS:
+                break
+            # Level 4: drop language patterns
+            parts = [p for p in parts if not p.startswith("Use expressions like:")]
+            prompt = "\n".join(parts)
+            if len(prompt) <= self._MAX_PROMPT_CHARS:
+                break
+            # Level 5: drop identity essence
+            parts = [p for p in parts if not p.startswith("Your identity:")]
             prompt = "\n".join(parts)
         return prompt
 

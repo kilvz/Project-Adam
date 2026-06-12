@@ -66,6 +66,7 @@ class CognitiveAgent:
                 logger.warning("Failed to load %s: %s", candidate, e)
                 continue
 
+        self.model_name = model_id if self.model is not None else None
         self.backend = BACKEND_CONFIG.get("mode", "local")
 
         if self.model is not None:
@@ -103,6 +104,10 @@ class CognitiveAgent:
         self.procedural_memory = ProceduralMemory()
         self.spatial_memory = SpatialMemory()
         self.persona = Persona()
+        from .persona_manager import _get_persona_tier
+        _tier = _get_persona_tier(self)
+        self.persona._max_rules = _tier["max_rules"]
+        self.persona._max_phrases = _tier["max_phrases"]
         self.language.persona = self.persona
         self.metacognitive = MetacognitiveController()
 
@@ -526,6 +531,13 @@ class CognitiveAgent:
             return {"status": "not_found", "name": name}
         self.persona = persona
         self.language.persona = persona
-        logger.info("Switched to persona '%s' (%d rules, %dKB raw)",
-                     name, len(persona.behavior_rules), len(persona.raw) // 1024)
+        # Set persona tier limits based on actual loaded model
+        from .persona_manager import _get_persona_tier
+        tier = _get_persona_tier(self)
+        persona._max_rules = tier["max_rules"]
+        persona._max_phrases = tier["max_phrases"]
+        logger.info("Switched to persona '%s' (%d/%d rules, %dKB raw, tier: %s)",
+                     name, len(persona.behavior_rules), tier["max_rules"],
+                     len(persona.raw) // 1024,
+                     "small" if tier["condense_target"] == 3000 else "medium" if tier["condense_target"] == 6000 else "large")
         return {"status": "switched", "name": name, "info": persona.to_dict()}

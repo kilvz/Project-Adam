@@ -9,6 +9,24 @@ logger = logging.getLogger(__name__)
 _CONDENSE_THRESHOLD = 10000
 _CONDENSE_TARGET = 8000
 
+_PERSONA_TIERS = {
+    "small": {"max_rules": 5, "max_phrases": 5, "condense_target": 3000},
+    "medium": {"max_rules": 10, "max_phrases": 10, "condense_target": 6000},
+    "large": {"max_rules": 20, "max_phrases": 20, "condense_target": 10000},
+}
+
+
+def _get_persona_tier(agent):
+    """Determine persona complexity tier from the loaded model name."""
+    model_name = getattr(agent, "model_name", None)
+    if model_name is None:
+        return _PERSONA_TIERS["large"]
+    if "0.5B" in model_name:
+        return _PERSONA_TIERS["small"]
+    if "1.5B" in model_name or "1b5" in model_name.lower():
+        return _PERSONA_TIERS["medium"]
+    return _PERSONA_TIERS["large"]
+
 _GENERATION_TEMPLATE = """Create a detailed persona for "{name}".
 
 {description}
@@ -231,9 +249,13 @@ class PersonaManager:
             if not synthesized:
                 synthesized = drafts[0]
 
-        if len(synthesized) > _CONDENSE_THRESHOLD:
-            logger.info("Persona is %d chars — condensing to ~%d...", len(synthesized), _CONDENSE_TARGET)
-            condensed = self._condense_persona(synthesized, agent)
+        tier = _get_persona_tier(agent)
+        condense_target = tier["condense_target"]
+        if len(synthesized) > condense_target:
+            logger.info("Persona is %d chars — condensing to ~%d (tier: %s)...",
+                        len(synthesized), condense_target,
+                        "small" if condense_target == 3000 else "medium" if condense_target == 6000 else "large")
+            condensed = self._condense_persona(synthesized, agent, condense_target)
             if condensed:
                 synthesized = condensed
 
@@ -244,14 +266,15 @@ class PersonaManager:
         logger.info("Persona '%s' saved to %s (%d chars)", name, out_path, len(synthesized))
         return out_path
 
-    def _condense_persona(self, text, agent):
+    def _condense_persona(self, text, agent, target_chars=8000):
         """Condense an oversized persona to fit within model context limits.
 
         Preserves all structural sections (0-11, behavioral rules, dialogue
         examples, language patterns) while reducing verbose prose.
+        Target is determined by the model's persona tier.
         """
         prompt = (
-            f"Condense this persona to under {_CONDENSE_TARGET} characters. "
+            f"Condense this persona to under {target_chars} characters. "
             "Keep ALL sections (0-11), behavioral rules with → arrows, "
             "dialogue examples with > quotes, and language pattern lists intact. "
             "Preserve the exact markdown structure so it can be parsed. "
