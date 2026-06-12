@@ -456,15 +456,23 @@ class CognitiveAgent:
 
         Used by the self-play loop to get expert responses for training data.
         Falls back to local model if the API is unreachable.
+        Uses raw model.generate() — bypasses _local_generate() which adds persona.
         """
         messages = [{"role": "user", "content": query}]
         if self.backend == "api":
             reply = self.language._api_generate(messages)
-            if not reply:
-                reply = self.language._local_generate(messages)
-        else:
-            reply = self.language._local_generate(messages)
-        return reply.strip() if reply else ""
+            if reply:
+                return reply.strip()
+        if self.model is None or self.tokenizer is None:
+            return ""
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.tokenizer(text, return_tensors="pt").to(DEVICE)
+        with torch.no_grad():
+            out = self.model.generate(**inputs, max_new_tokens=128,
+                                      temperature=0.7, do_sample=True)
+        return self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
     def toggle_self_play(self, action="status"):
         """Control the self-play background thread.
@@ -480,7 +488,7 @@ class CognitiveAgent:
                 from .self_play import SelfPlayLearner
                 self.self_play = SelfPlayLearner(self, SELF_PLAY_CONFIG)
                 self.self_play.start()
-                return {"status": "started", "stats": self.self_play.stats}
+                return {"status": "started", "stats": self.self_play.get_stats()}
             return {"status": "disabled", "stats": {}}
 
         if action == "start":
@@ -492,4 +500,4 @@ class CognitiveAgent:
             self.self_play.start()
 
         return {"status": "running" if self.self_play.stats["running"] else "stopped",
-                "stats": self.self_play.stats}
+                "stats": self.self_play.get_stats()}

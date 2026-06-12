@@ -29,6 +29,7 @@ class SelfPlayLearner:
         self._checkpoint_path = get_memory_dir() / "self_play_checkpoint.json"
         self._load_checkpoint()
         self._run_immediately = threading.Event()
+        self._stats_lock = threading.Lock()
 
         self.stats = {
             "total_queries": 0,
@@ -51,6 +52,7 @@ class SelfPlayLearner:
 
     def stop(self):
         self._running.clear()
+        self._run_immediately.set()  # wake sleeping thread
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
@@ -59,6 +61,10 @@ class SelfPlayLearner:
         logger.info("Self-play: thread stopped")
 
     # ── Main loop ──────────────────────────────────────────────────
+
+    def get_stats(self):
+        with self._stats_lock:
+            return dict(self.stats)
 
     def _loop(self):
         while self._running.is_set():
@@ -72,7 +78,8 @@ class SelfPlayLearner:
             for strategy in self.strategies:
                 if not self._running.is_set():
                     break
-                self.stats["current_strategy"] = strategy
+                with self._stats_lock:
+                    self.stats["current_strategy"] = strategy
                 n = max(1, self.batch_size // len(self.strategies))
                 queries = self._generate_queries(strategy, n)
                 queries = self._dedup(queries)
@@ -94,10 +101,12 @@ class SelfPlayLearner:
                     if self.agent.episodic_memory.episodes:
                         self.agent.episodic_memory.episodes[-1]["rpe"] = rpe
                     self._query_history.append(q)
-                    self.stats["total_queries"] += 1
-                    self.stats["total_trained"] += 1
-                if self.stats["total_queries"] % self.checkpoint_interval == 0:
-                    self._save_checkpoint()
+                    with self._stats_lock:
+                        self.stats["total_queries"] += 1
+                        self.stats["total_trained"] += 1
+                with self._stats_lock:
+                    if self.stats["total_queries"] % self.checkpoint_interval == 0:
+                        self._save_checkpoint()
             time.sleep(self.interval)
 
     # ── Query generation (4 strategies) ─────────────────────────────
@@ -161,17 +170,33 @@ class SelfPlayLearner:
                 for _, kw in candidates[:n]]
 
     def _queries_creative(self, n):
-        # Two-step: ask teacher for topic, then formulate query
-        topic_query = "Suggest a topic for me to learn about. Give me one specific concept."
-        topic = self._call_teacher(topic_query)
-        if not topic:
-            return []
-        # Take first sentence as topic name
-        topic_clean = topic.split(".")[0].split(":")[0].strip()
-        if len(topic_clean) < 3:
-            return []
-        self._query_history.append(topic_clean)
-        return [f"Explain {topic_clean} to me. What should I know about it?"]
+        queries = []
+        max_attempts = n * 2
+        attempts = 0
+        while len(queries) < n and attempts < max_attempts:
+            attempts += 1
+            topic_query = "Suggest a topic for me to learn about. Give me one specific concept."
+            topic = self._call_teacher(topic_query)
+            if not topic:
+                continue
+            topic_clean = topic.split(".")[0].split(":")[0].strip()
+            if len(topic_clean) < 3:
+                continue
+            # Dedup check against existing query history
+            topic_dup = False
+            if self.agent.episodic_memory.embedder:
+                t_emb = self.agent.episodic_memory.encode(topic_clean)
+                for recent in list(self._query_history):
+                    r_emb = self.agent.episodic_memory.encode(recent)
+                    sim = float(t_emb @ r_emb / (np.linalg.norm(t_emb) * np.linalg.norm(r_emb) + 1e-8))
+                    if sim > 0.85:
+                        topic_dup = True
+                        break
+            if topic_dup:
+                continue
+            self._query_history.append(topic_clean)
+            queries.append(f"Explain {topic_clean} to me. What should I know about it?")
+        return queries[:n]
 
     # ── Teacher call ────────────────────────────────────────────────
 

@@ -171,7 +171,7 @@ def load_config(path=None):
         BACKEND_CONFIG["mode"] = mode
 
     sp = cfg.get("self_play", {})
-    if sp:
+    if isinstance(sp, dict) and sp:
         SELF_PLAY_CONFIG.update({
             "enabled": sp.get("enabled", SELF_PLAY_CONFIG["enabled"]),
             "interval_seconds": sp.get("interval_seconds", SELF_PLAY_CONFIG["interval_seconds"]),

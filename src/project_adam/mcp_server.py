@@ -119,7 +119,7 @@ def adam_get_status() -> dict:
         "self_play": {},
     }
     if agent.self_play is not None:
-        status["self_play"] = dict(agent.self_play.stats)
+        status["self_play"] = agent.self_play.get_stats()
     else:
         status["self_play"] = {"running": False}
     return status
