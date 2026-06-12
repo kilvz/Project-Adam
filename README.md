@@ -236,7 +236,7 @@ PYTHONPATH=src python3 -m pytest tests/test_search.py -v
 - Python 3.10+
 - NVIDIA GPU with 4GB+ VRAM (GTX 1050 minimum) — or use remote API backend
 - 6GB disk for Qwen2.5-3B model (~2GB quantized)
-- No API key needed for remote API endpoint
+- API key required for remote API endpoint (set `key` in config.yaml)
 
 ## License
 
